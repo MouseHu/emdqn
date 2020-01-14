@@ -17,7 +17,7 @@ temp[0] = cwd
 print(sys.path)
 
 import baselines.common.tf_util as U
-
+import datetime
 from baselines import logger
 from baselines import deepq
 from baselines.deepq.replay_buffer import ReplayBuffer, PrioritizedReplayBuffer
@@ -35,7 +35,7 @@ from baselines.common.schedules import LinearSchedule, PiecewiseSchedule
 # copy over LazyFrames
 from baselines.common.atari_wrappers_deprecated import wrap_dqn
 from baselines.common.azure_utils import Container
-from model import model, dueling_model
+from model import ib_model, ib_dueling_model
 
 from lru_knn import LRU_KNN
 
@@ -72,10 +72,17 @@ def parse_args():
                         help="It present data will saved/loaded from Azure. Should be in format ACCOUNT_NAME:ACCOUNT_KEY:CONTAINER")
     parser.add_argument("--save-freq", type=int, default=1e6,
                         help="save model once every time this many iterations are completed")
+    parser.add_argument("--latent_dim", type=int, default=512,
+                        help="latent_dim")
+    parser.add_argument("--comment", type=str, default=datetime.datetime.now().strftime("%I-%M_%B-%d-%Y"),
+                        help="discription for this experiment")
+    parser.add_argument("--log_dir", type=str, default="./tflogs",
+                        help="directory in which training state and model should be saved.")
     boolean_flag(parser, "load-on-start", default=True,
                  help="if true and model was previously saved then training will be resumed")
+
     # EMDQN
-    boolean_flag(parser, "emdqn", default=False, help="whether or not to use emdqn")
+    boolean_flag(parser, "ibemdqn", default=False, help="whether or not to use ibemdqn")
     return parser.parse_args()
 
 
@@ -128,8 +135,7 @@ def maybe_load_model(savedir, container):
 
 if __name__ == '__main__':
     args = parse_args()
-    emdqn = args.emdqn
-    print(emdqn)
+    emdqn = args.ibemdqn
     # Parse savedir and azure container.
     savedir = args.save_dir
     if args.save_azure_container is not None:
@@ -149,13 +155,22 @@ if __name__ == '__main__':
         set_global_seeds(args.seed)
         env.unwrapped.seed(args.seed)
 
+    subdir = (datetime.datetime.now()).strftime("%m-%d-%Y-%H:%M:%S") + " " + args.comment
+    tf_writer = tf.summary.FileWriter(os.path.join(args.log_dir, subdir), tf.get_default_graph())
+    value_summary = tf.Summary()
+    qec_summary = tf.Summary()
+    value_summary.value.add(tag='reward_mean')
+    qec_summary.value.add(tag='qec_mean')
+    qec_summary.value.add(tag='qec_fount')
+    value_summary.value.add(tag='steps')
+
     with U.make_session(4) as sess:
         # EMDQN
         if emdqn:
             ec_buffer = []
             buffer_size = 5000000
             latent_dim = 4
-            input_dim = 84 * 84 * 4
+            input_dim = 1024
             for i in range(env.action_space.n):
                 ec_buffer.append(LRU_KNN(buffer_size, latent_dim, 'game'))
             rng = np.random.RandomState(123456)  # deterministic, erase 123456 for stochastic
@@ -164,7 +179,7 @@ if __name__ == '__main__':
             update_counter = 0
             qec_found = 0
             sequence = []
-        tfout = open('result_%s_%s' % (args.env, str(emdqn)), 'w+')
+        tfout = open('./results/result_ib_%s_%s_%s' % (args.env, str(emdqn),args.comment), 'w+')
 
 
         def update_kdtree():
@@ -185,15 +200,15 @@ if __name__ == '__main__':
 
 
         # Create training graph and replay buffer
-        act, train, update_target, debug, get_q_t_selected = deepq.build_train(
+        act, train, update_target, debug, get_q_t_selected = deepq.build_train_ib(
             make_obs_ph=lambda name: U.Uint8Input(env.observation_space.shape, name=name),
-            q_func=dueling_model if args.dueling else model,
+            model_func=ib_dueling_model if args.dueling else ib_model,
             num_actions=env.action_space.n,
             optimizer=tf.train.AdamOptimizer(learning_rate=args.lr, epsilon=1e-4),
             gamma=0.99,
             grad_norm_clipping=10,
             double_q=args.double_q,
-            emdqn=args.emdqn
+            emdqn=args.ibemdqn
         )
 
 
@@ -204,7 +219,8 @@ if __name__ == '__main__':
             for i in range(30):
                 tobs = tenv.reset()
                 while True:
-                    action = act(np.array(tobs)[None], stochastic=0.05)[0]
+                    action = \
+                        act(np.array(tobs)[None], stochastic=0.05, act_noise=np.random.randn((1, args.latent_dim)))[0]
                     tobs, rew, done, info = tenv.step(action)
                     print(info)
                     if done and len(info["rewards"]) > 0:
@@ -250,10 +266,17 @@ if __name__ == '__main__':
         while True:
             num_iters += 1
             # Take action and store transition in the replay buffer.
-            action= act(np.array(obs)[None], update_eps=exploration.value(num_iters))[0]
+            action, z_mean, z_logvar = \
+                act(np.array(obs)[None], update_eps=exploration.value(num_iters),
+                    act_noise=np.random.randn(1, args.latent_dim))
+            action = action[0]
             new_obs, rew, done, info = env.step(action)
+            z_mean, z_logvar = z_mean.squeeze(), z_logvar.squeeze()
+            z_std = np.exp(z_logvar / 2)
+            z = np.concatenate((z_mean, z_std))
+            # EMDQN
             if emdqn:
-                sequence.append([np.array(obs), action, np.clip(rew, -1, 1), ])
+                sequence.append([z, action, np.clip(rew, -1, 1)])
 
             replay_buffer.add(obs, action, rew, new_obs, float(done))
             obs = new_obs
@@ -276,9 +299,20 @@ if __name__ == '__main__':
                 # EMDQN
                 if emdqn:
                     update_counter += 1
-                    qec_input = get_q_t_selected(obses_t, actions)
+                    z_noise = np.random.randn(args.batch_size, args.latent_dim)
+                    qec_input = get_q_t_selected(obses_t, actions, z_noise)
+
                     for i in range(args.batch_size):
-                        z = np.dot(rp, obses_t[i].flatten())
+                        _, z_mean, z_logvar = \
+                            act(np.array(obs)[None], update_eps=exploration.value(num_iters),
+                                act_noise=z_noise[[i], :])
+                        z_mean, z_logvar = z_mean.squeeze(), z_logvar.squeeze()
+                        # print(z_mean.shape,z_logvar.shape)
+                        z_std = np.exp(z_logvar / 2)
+                        z = np.concatenate((z_mean, z_std))
+                        z = np.dot(rp, z.flatten())
+                        # print(z.shape)
+                        z = z.reshape((latent_dim))
                         q = ec_buffer[actions[i]].peek(z, None, modify=False)
                         if q != None:
                             qec_input[i] = q
@@ -288,17 +322,29 @@ if __name__ == '__main__':
                     if update_counter % 2000 == 1999:
                         print("qec_mean:", np.mean(qecwatch))
                         print("qec_fount: %.2f" % (1.0 * qec_found / args.batch_size / update_counter))
+
+                        qec_summary.value[0].simple_value = np.mean(qecwatch)
+                        qec_summary.value[1].simple_value = 1.0 * qec_found / args.batch_size / update_counter
+                        tf_writer.add_summary(qec_summary, global_step=info["steps"])
                         qecwatch = []
 
+
                 # Minimize the error in Bellman's equation and compute TD-error
+                act_noise, z_noise, z_noise_tp1 = np.random.randn(args.batch_size, args.latent_dim), np.random.randn(
+                    args.batch_size, args.latent_dim), np.random.randn(args.batch_size, args.latent_dim)
                 if emdqn:
-                    td_errors, qec_errors = train(obses_t, actions, rewards, obses_tp1, dones, weights, qec_input)
+                    td_errors, qec_errors, ib_losses,summary = train(obses_t, actions, rewards, obses_tp1, dones, weights,
+                                                             qec_input,
+                                                             act_noise, z_noise, z_noise_tp1)
                 else:
-                    td_errors = train(obses_t, actions, rewards, obses_tp1, dones, weights)
+                    td_errors, ib_losses,summary = train(obses_t, actions, rewards, obses_tp1, dones, weights, act_noise,
+                                                 z_noise, z_noise_tp1)
                 # Update the priorities in the replay buffer
                 if args.prioritized:
                     new_priorities = np.abs(td_errors) + args.prioritized_eps
                     replay_buffer.update_priorities(batch_idxes, new_priorities)
+                tf_writer.add_summary(summary,global_step=info["steps"])
+                # tf_writer.add_summary(summary,global_step=info["steps"])
             # Update target network.
             if num_iters % args.target_update_freq == 0:  # NOTE: why not 10000?
                 update_target()
@@ -309,6 +355,7 @@ if __name__ == '__main__':
                 steps_per_iter.update(info['steps'] - start_steps)
                 iteration_time_est.update(time.time() - start_time)
             start_time, start_steps = time.time(), info["steps"]
+            value_summary.value[1].simple_value = num_iters
 
             # Save the model and training state.
             '''
@@ -332,7 +379,9 @@ if __name__ == '__main__':
                 logger.record_tabular("iters", num_iters)
                 logger.record_tabular("episodes", len(info["rewards"]))
                 logger.record_tabular("reward (100 epi mean)", np.mean(info["rewards"][-100:]))
+                value_summary.value[0].simple_value = np.mean(info["rewards"][-100:])
                 if len(info["rewards"]) > 1:
+                    np.mean(info["rewards"][-100:])
                     tfout.write("%d, %.2f\n" % (info["steps"], np.mean(info["rewards"][-100:])))
                     tfout.flush()
                 logger.record_tabular("exploration", exploration.value(num_iters))
@@ -344,7 +393,7 @@ if __name__ == '__main__':
                 logger.log()
                 logger.log("ETA: " + pretty_eta(int(steps_left / fps_estimate)))
                 logger.log()
-
+            tf_writer.add_summary(value_summary, global_step=info["steps"])
             # if num_iters % 1000000 == 999999:
             #    avg_score = test_agent()
             #    tfout.write("%.2f\n" % avg_score)

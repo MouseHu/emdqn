@@ -1,0 +1,5 @@
+/.idea
+/*/__pycache__
+baselines/deepq/experiments/atari/tflogs/
+baselines/deepq/experiments/atari/logs/
+baselines/deepq/experiments/atari/results/
