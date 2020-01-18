@@ -10,7 +10,7 @@ def main():
     model = deepq.models.cnn_to_mlp(
         convs=[(32, 8, 4), (64, 4, 2), (64, 3, 1)],
         hiddens=[256],
-        dueling=True
+        dueling=False
     )
     act = deepq.learn(
         env,
@@ -24,7 +24,7 @@ def main():
         learning_starts=10000,
         target_network_update_freq=1000,
         gamma=0.99,
-        prioritized_replay=True
+        prioritized_replay=False
     )
     act.save("pong_model.pkl")
     env.close()

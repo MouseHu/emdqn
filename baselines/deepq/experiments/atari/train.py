@@ -130,6 +130,9 @@ if __name__ == '__main__':
     args = parse_args()
     emdqn = args.emdqn
     print(emdqn)
+    print(args.double_q)
+    print(args.dueling)
+    print(args.prioritized)
     # Parse savedir and azure container.
     savedir = args.save_dir
     if args.save_azure_container is not None:
