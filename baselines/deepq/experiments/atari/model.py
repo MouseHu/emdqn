@@ -1,5 +1,6 @@
 import tensorflow as tf
 import tensorflow.contrib.layers as layers
+
 import numpy as np
 
 
@@ -10,6 +11,7 @@ def ib_model(img_in, noise, num_actions, scope, reuse=False, decoder="SPD"):
         out = img_in
         coordinate = np.meshgrid(np.linspace(-1, 1, img_size), np.linspace(-1, 1, img_size))
         coordinate = tf.constant(coordinate)  # .to(torch.device("cuda"))
+
         with tf.variable_scope("convnet"):
             # original architecture
             out = layers.convolution2d(out, num_outputs=32, kernel_size=8, stride=4, activation_fn=tf.nn.relu)
@@ -18,11 +20,14 @@ def ib_model(img_in, noise, num_actions, scope, reuse=False, decoder="SPD"):
         out = layers.flatten(out)
         z_mean = layers.fully_connected(out, num_outputs=512, activation_fn=None)
         z_logvar = layers.fully_connected(out, num_outputs=512, activation_fn=None)
+
         z = z_mean + noise * tf.exp(0.5 * z_logvar)
+
         with tf.variable_scope("action_value"):
             q_h = layers.fully_connected(z, num_outputs=512, activation_fn=tf.nn.relu)
             q_func = layers.fully_connected(q_h, num_outputs=num_actions, activation_fn=None)
         with tf.variable_scope("state_value"):
+
             v_h = layers.fully_connected(z, num_outputs=512, activation_fn=tf.nn.relu)
             v_mean = layers.fully_connected(v_h, num_outputs=1, activation_fn=None)
             v_logvar = layers.fully_connected(v_h, num_outputs=1, activation_fn=None)
@@ -47,6 +52,7 @@ def ib_model(img_in, noise, num_actions, scope, reuse=False, decoder="SPD"):
                 print("Unrecognized decoder type.")
                 raise NotImplementedError
         return q_func, v_mean, v_logvar, z_mean, z_logvar, reconstruct
+
 
 
 def dueling_model(img_in, num_actions, scope, reuse=False):

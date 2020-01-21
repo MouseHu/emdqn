@@ -82,9 +82,11 @@ def parse_args():
                  help="if true and model was previously saved then training will be resumed")
 
     # EMDQN
+
     boolean_flag(parser, "emdqn", default=False, help="whether or not to use emdqn")
     boolean_flag(parser, "ib", default=False, help="whether or not to use information bottleneck")
     boolean_flag(parser, "vae", default=False, help="whether or not to use vae")
+
     return parser.parse_args()
 
 
@@ -137,10 +139,12 @@ def maybe_load_model(savedir, container):
 
 if __name__ == '__main__':
     args = parse_args()
+
     emdqn = args.emdqn
     ib = args.ib
     vae = args.vae
     print("EMDQN:{},IB:{},VAE:{}".format(emdqn, ib, vae))
+
     # Parse savedir and azure container.
     savedir = args.save_dir
     if args.save_azure_container is not None:
@@ -171,7 +175,9 @@ if __name__ == '__main__':
 
     with U.make_session(4) as sess:
         # EMDQN
+
         if emdqn or ib:
+
             ec_buffer = []
             buffer_size = 5000000
             latent_dim = 4
@@ -184,8 +190,10 @@ if __name__ == '__main__':
             update_counter = 0
             qec_found = 0
             sequence = []
+
         tfout = open(
             './results/result_%s_emdqn%s_ib%s_vae%s_%s' % (args.env, str(emdqn), str(ib), str(vae), args.comment), 'w+')
+
 
 
         def update_kdtree():
@@ -214,9 +222,11 @@ if __name__ == '__main__':
             gamma=0.99,
             grad_norm_clipping=10,
             double_q=args.double_q,
+
             emdqn=args.emdqn,
             ib=args.ib,
             vae=args.vae
+
         )
 
 
@@ -283,14 +293,18 @@ if __name__ == '__main__':
             z_std = np.exp(z_logvar / 2)
             z = np.concatenate((z_mean, z_std))
             # EMDQN
+
             if emdqn or ib:
+
                 sequence.append([z, action, np.clip(rew, -1, 1)])
 
             replay_buffer.add(obs, action, rew, new_obs, float(done))
             obs = new_obs
             if done:
                 # EMDQN
+
                 if emdqn or ib:
+
                     update_ec(sequence)
                     sequence = []
                 obs = env.reset()
@@ -300,6 +314,7 @@ if __name__ == '__main__':
                 # Sample a bunch of transitions from replay buffer
                 if args.prioritized:
                     experience = replay_buffer.sample(args.batch_size, beta=beta_schedule.value(num_iters))
+
                     experience_vae = replay_buffer.sample(args.batch_size, beta=beta_schedule.value(num_iters))
                     (obses_t, actions, rewards, obses_tp1, dones, weights, batch_idxes) = experience
                     (obses_vae, actions, rewards, obses_vae, dones, weights_vae, batch_idxes_vae) = experience_vae
@@ -309,6 +324,7 @@ if __name__ == '__main__':
                     weights = np.ones_like(rewards)
                 # EMDQN
                 if emdqn or ib:
+
                     update_counter += 1
                     z_noise = np.random.randn(args.batch_size, args.latent_dim)
                     qec_input = get_q_t_selected(obses_t, actions, z_noise)
@@ -339,6 +355,7 @@ if __name__ == '__main__':
                         tf_writer.add_summary(qec_summary, global_step=info["steps"])
                         qecwatch = []
 
+
                 # Minimize the error in Bellman's equation and compute TD-error
                 act_noise, z_noise, z_noise_tp1, z_noise_vae = np.random.randn(args.batch_size, args.latent_dim), \
                                                                np.random.randn(args.batch_size, args.latent_dim), \
@@ -361,11 +378,14 @@ if __name__ == '__main__':
                     inputs.append(z_noise_vae)
                 td_errors, summary = train(*inputs)
 
+
                 # Update the priorities in the replay buffer
                 if args.prioritized:
                     new_priorities = np.abs(td_errors) + args.prioritized_eps
                     replay_buffer.update_priorities(batch_idxes, new_priorities)
+
                 tf_writer.add_summary(summary, global_step=info["steps"])
+
                 # tf_writer.add_summary(summary,global_step=info["steps"])
             # Update target network.
             if num_iters % args.target_update_freq == 0:  # NOTE: why not 10000?
@@ -416,7 +436,9 @@ if __name__ == '__main__':
                 logger.log("ETA: " + pretty_eta(int(steps_left / fps_estimate)))
                 logger.log()
             tf_writer.add_summary(value_summary, global_step=info["steps"])
+
             if num_iters % 1000000 == 999999:
                 avg_score = test_agent()
                 tfout.write("%.2f\n" % avg_score)
                 tfout.flush()
+

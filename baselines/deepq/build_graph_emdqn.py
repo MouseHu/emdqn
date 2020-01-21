@@ -320,7 +320,9 @@ def build_act_ib(make_obs_ph, q_func, z_noise, num_actions, scope="deepq", reuse
 
         eps = tf.get_variable("eps", (), initializer=tf.constant_initializer(0))
 
+
         q_values, _, _, z_mean, z_logvar, _ = q_func(observations_ph.get(), z_noise, num_actions, scope="q_func")
+
         deterministic_actions = tf.argmax(q_values, axis=1)
 
         batch_size = tf.shape(observations_ph.get())[0]
@@ -339,8 +341,10 @@ def build_act_ib(make_obs_ph, q_func, z_noise, num_actions, scope="deepq", reuse
 
 
 def build_train_ib(make_obs_ph, model_func, num_actions, optimizer,
+
                    grad_norm_clipping=None, gamma=1.0, beta=1.0, theta=1, double_q=True,
                    emdqn=True, vae=True, ib=True, scope="deepq_ib", reuse=None):
+
     """Creates the train function:
 
     Parameters
@@ -399,14 +403,17 @@ def build_train_ib(make_obs_ph, model_func, num_actions, optimizer,
         # set up placeholders
         obs_t_input = U.ensure_tf_input(make_obs_ph("obs_t"))
 
+
         act_t_ph = tf.placeholder(tf.int32, [None], name="action")
         rew_t_ph = tf.placeholder(tf.float32, [None], name="reward")
         z_noise_t = tf.placeholder(tf.float32, [None, 512], name="z_noise")
+
 
         z_noise_tp1 = tf.placeholder(tf.float32, [None, 512], name="z_noise_tp1")
         obs_tp1_input = U.ensure_tf_input(make_obs_ph("obs_tp1"))
         done_mask_ph = tf.placeholder(tf.float32, [None], name="done")
         importance_weights_ph = tf.placeholder(tf.float32, [None], name="weight")
+
 
         inputs = [
             obs_t_input,
@@ -436,15 +443,18 @@ def build_train_ib(make_obs_ph, model_func, num_actions, optimizer,
                                                                                           z_noise_vae, num_actions,
                                                                                           scope="q_func",
                                                                                           reuse=True)
+
         # q_t = q_func(obs_t_input.get(), num_actions, scope="q_func", reuse=True)  # reuse parameters from act
 
         q_func_vars = U.scope_vars(U.absolute_scope_name("q_func"))
 
         # target q network evalution
+
         q_tp1, v_mean_tp1, v_logvar_tp1, z_mean_tp1, z_logvar_tp1, recon_obs_tp1 = model_func(obs_tp1_input.get(),
                                                                                               z_noise_tp1,
                                                                                               num_actions,
                                                                                               scope="target_q_func")
+
         target_q_func_vars = U.scope_vars(U.absolute_scope_name("target_q_func"))
 
         # q scores for actions which we know were selected in the given state.
@@ -452,9 +462,11 @@ def build_train_ib(make_obs_ph, model_func, num_actions, optimizer,
 
         # compute estimate of best possible value starting from state at t + 1
         if double_q:
+
             q_tp1_using_online_net, _, _, _, _, _ = model_func(obs_tp1_input.get(), z_noise_tp1, num_actions,
                                                                scope="q_func",
                                                                reuse=True)
+
             q_tp1_best_using_online_net = tf.arg_max(q_tp1_using_online_net, 1)
             q_tp1_best = tf.reduce_sum(q_tp1 * tf.one_hot(q_tp1_best_using_online_net, num_actions), 1)
         else:
@@ -466,6 +478,7 @@ def build_train_ib(make_obs_ph, model_func, num_actions, optimizer,
 
         # compute the error (potentially clipped)
         td_error = q_t_selected - tf.stop_gradient(q_t_selected_target)
+
         td_loss = tf.reduce_mean(importance_weights_ph * td_error)
         outputs = [td_loss]
         total_loss = td_loss
@@ -519,6 +532,7 @@ def build_train_ib(make_obs_ph, model_func, num_actions, optimizer,
         else:
             optimize_expr = optimizer.minimize(total_loss, var_list=q_func_vars)
 
+
         # update_target_fn will be called periodically to copy Q network to target Q network
         update_target_expr = []
         for var, var_target in zip(sorted(q_func_vars, key=lambda v: v.name),
@@ -527,11 +541,13 @@ def build_train_ib(make_obs_ph, model_func, num_actions, optimizer,
         update_target_expr = tf.group(*update_target_expr)
 
         # Create callable functions
+
         train = U.function(
             inputs=inputs,
             outputs=[td_error, summary],
             updates=[optimize_expr]
         )
+
         get_q_t_selected = U.function(
             inputs=[
                 obs_t_input,
