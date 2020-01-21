@@ -37,7 +37,7 @@ def ib_model(img_in, noise, num_actions, scope, reuse=False, decoder="DECONV"):
                 out = tf.reshape(out,[-1, 7, 7, 4])
                 out = layers.conv2d_transpose(out, 32, kernel_size=3, stride=2, activation_fn=tf.nn.relu, padding='same')
                 out = layers.conv2d_transpose(out, 64, kernel_size=4, stride=2, activation_fn=tf.nn.relu, padding='same')
-                reconstruct = layers.conv2d_transpose(out, 1, kernel_size=8, stride=3, activation_fn=tf.nn.sigmoid,
+                reconstruct = layers.conv2d_transpose(out, 4, kernel_size=8, stride=3, activation_fn=tf.nn.sigmoid,
                                                       padding='same')
             elif decoder == "SPD":
                 out = layers.fully_connected(z, num_outputs=64, activation_fn=tf.nn.relu)

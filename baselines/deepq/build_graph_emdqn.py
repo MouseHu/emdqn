@@ -484,19 +484,21 @@ def build_train_ib(make_obs_ph, model_func, num_actions, optimizer,
         total_loss = td_loss
         if vae or ib:
             encoder_loss = 1 + z_mean_vae ** 2 + tf.exp(z_logvar_vae) - z_logvar_vae
-            outputs += encoder_loss
+            outputs.append(encoder_loss)
             total_loss += 0.1 * tf.reduce_mean(beta * encoder_loss)
         if vae:
-            decoder_loss = tf.keras.losses.binary_crossentropy(tf.reshape(recon_obs,[-1]), tf.reshape(obs_vae_input,[-1]))
+            decoder_loss = tf.keras.losses.binary_crossentropy(tf.reshape(recon_obs,[-1]), tf.reshape(tf.dtypes.cast(obs_vae_input._placeholder,tf.float32),[-1]))
             print("here", z_mean_t.shape, z_logvar_t.shape, encoder_loss.shape, decoder_loss.shape)
             vae_loss = beta * encoder_loss + theta * decoder_loss
-            outputs += [decoder_loss, vae_loss]
+            outputs.append(decoder_loss)
+            outputs.append(vae_loss)
             total_loss += 0.1 * tf.reduce_mean(theta * decoder_loss)
         if ib:
-            ib_loss = (v_mean_t - tf.stop_gradient(qec_input)) ** 2 / tf.exp(v_logvar_t) + v_logvar_t
+            ib_loss = (v_mean_t - tf.stop_gradient(tf.expand_dims(qec_input,1))) ** 2 / tf.exp(v_logvar_t) + v_logvar_t
+            print("here2", v_mean_t.shape, tf.expand_dims(qec_input,1).shape, v_logvar_t.shape, ib_loss.shape)
             total_ib_loss = ib_loss + beta * encoder_loss
             outputs.append(total_ib_loss)
-            total_loss += 0.1 * tf.reduced_mean(ib_loss)
+            total_loss += 0.1 * tf.reduce_mean(ib_loss)
         # EMDQN
         if emdqn:
             qec_error = q_t_selected - tf.stop_gradient(qec_input)
@@ -514,8 +516,8 @@ def build_train_ib(make_obs_ph, model_func, num_actions, optimizer,
             decoder_loss_summary = tf.summary.scalar("decoder loss", tf.reduce_mean(decoder_loss))
             summaries.append(decoder_loss_summary)
         if ib:
-            ib_loss_summary = tf.summary.scalar("ib loss", ib_loss)
-            total_ib_loss_summary = tf.summary.scalar("total ib loss", total_ib_loss)
+            ib_loss_summary = tf.summary.scalar("ib loss", tf.reduce_mean(ib_loss))
+            total_ib_loss_summary = tf.summary.scalar("total ib loss", tf.reduce_mean(total_ib_loss))
             summaries.append(ib_loss_summary)
             summaries.append(total_ib_loss_summary)
         if emdqn:
