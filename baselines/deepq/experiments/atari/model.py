@@ -4,13 +4,13 @@ import tensorflow.contrib.layers as layers
 import numpy as np
 
 
-def ib_model(img_in, noise, num_actions, scope, reuse=False, decoder="SPD"):
+def ib_model(img_in, noise, num_actions, scope, reuse=False, decoder="DECONV"):
     """As described in https://storage.googleapis.com/deepmind-data/assets/papers/DeepMindNature14236Paper.pdf"""
     img_size = img_in.shape[1]
     with tf.variable_scope(scope, reuse=reuse):
         out = img_in
-        coordinate = np.meshgrid(np.linspace(-1, 1, img_size), np.linspace(-1, 1, img_size))
-        coordinate = tf.constant(coordinate)  # .to(torch.device("cuda"))
+        #coordinate = np.meshgrid()
+        coordinate = tf.meshgrid(np.linspace(-1, 1, img_size), np.linspace(-1, 1, img_size))  # .to(torch.device("cuda"))
 
         with tf.variable_scope("convnet"):
             # original architecture
@@ -34,10 +34,10 @@ def ib_model(img_in, noise, num_actions, scope, reuse=False, decoder="SPD"):
         with tf.variable_scope("reconstruction"):
             if decoder == "DECONV":
                 out = layers.fully_connected(z, num_outputs=196, activation_fn=tf.nn.relu)
-                out = out.reshape(-1, 7, 7, 4)
-                out = layers.conv2d_transpose(z, 32, kernel_size=3, strides=2, activation=tf.nn.relu, padding='same')
-                out = layers.conv2d_transpose(z, 64, kernel_size=4, strides=2, activation=tf.nn.relu, padding='same')
-                reconstruct = layers.conv2d_transpose(z, 1, kernel_size=8, strides=3, activation=tf.nn.sigmoid,
+                out = tf.reshape(out,[-1, 7, 7, 4])
+                out = layers.conv2d_transpose(out, 32, kernel_size=3, stride=2, activation_fn=tf.nn.relu, padding='same')
+                out = layers.conv2d_transpose(out, 64, kernel_size=4, stride=2, activation_fn=tf.nn.relu, padding='same')
+                reconstruct = layers.conv2d_transpose(out, 1, kernel_size=8, stride=3, activation_fn=tf.nn.sigmoid,
                                                       padding='same')
             elif decoder == "SPD":
                 out = layers.fully_connected(z, num_outputs=64, activation_fn=tf.nn.relu)

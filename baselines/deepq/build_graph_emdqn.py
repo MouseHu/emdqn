@@ -487,7 +487,7 @@ def build_train_ib(make_obs_ph, model_func, num_actions, optimizer,
             outputs += encoder_loss
             total_loss += 0.1 * tf.reduce_mean(beta * encoder_loss)
         if vae:
-            decoder_loss = tf.keras.losses.binary_crossentropy(recon_obs.reshape(-1), obs_vae_input.reshape(-1))
+            decoder_loss = tf.keras.losses.binary_crossentropy(tf.reshape(recon_obs,[-1]), tf.reshape(obs_vae_input,[-1]))
             print("here", z_mean_t.shape, z_logvar_t.shape, encoder_loss.shape, decoder_loss.shape)
             vae_loss = beta * encoder_loss + theta * decoder_loss
             outputs += [decoder_loss, vae_loss]
