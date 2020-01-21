@@ -439,7 +439,8 @@ def build_train_ib(make_obs_ph, model_func, num_actions, optimizer,
         q_t, v_mean_t, v_logvar_t, z_mean_t, z_logvar_t, _ = model_func(obs_t_input.get(), z_noise_t, num_actions,
                                                                         scope="q_func",
                                                                         reuse=True)
-        q_vae, v_mean_vae, v_logvar_vae, z_mean_vae, z_logvar_vae, recon_obs = model_func(obs_vae_input.get(),
+        if vae or ib:
+            q_vae, v_mean_vae, v_logvar_vae, z_mean_vae, z_logvar_vae, recon_obs = model_func(obs_vae_input.get(),
                                                                                           z_noise_vae, num_actions,
                                                                                           scope="q_func",
                                                                                           reuse=True)
