@@ -1,0 +1,9 @@
+gym>=0.9.1[all]
+scipy
+tqdm
+joblib
+zmq
+dill
+tensorflow>=1.0.0
+azure==1.0.3
+progressbar2
