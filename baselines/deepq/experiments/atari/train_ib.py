@@ -84,6 +84,7 @@ def parse_args():
     # EMDQN
 
     boolean_flag(parser, "emdqn", default=False, help="whether or not to use emdqn")
+    boolean_flag(parser, "ib2", default=False, help="whether or not to use ib2")
     boolean_flag(parser, "ib", default=False, help="whether or not to use information bottleneck")
     boolean_flag(parser, "vae", default=False, help="whether or not to use vae")
 
@@ -141,7 +142,7 @@ if __name__ == '__main__':
     args = parse_args()
 
     emdqn = args.emdqn
-    ib = args.ib
+    ib = args.ib or args.ib2
     vae = args.vae
     print("EMDQN:{},IB:{},VAE:{}".format(emdqn, ib, vae))
 
@@ -181,7 +182,10 @@ if __name__ == '__main__':
             ec_buffer = []
             buffer_size = 5000000
             latent_dim = 4
-            input_dim = 1024
+            if args.ib2:
+                input_dim=4*84*84
+            else:
+                input_dim=1024
             for i in range(env.action_space.n):
                 ec_buffer.append(LRU_KNN(buffer_size, latent_dim, 'game'))
             rng = np.random.RandomState(123456)  # deterministic, erase 123456 for stochastic
@@ -223,9 +227,9 @@ if __name__ == '__main__':
             grad_norm_clipping=10,
             double_q=args.double_q,
 
-            emdqn=args.emdqn,
-            ib=args.ib,
-            vae=args.vae
+            emdqn=emdqn,
+            ib=ib,
+            vae=vae
 
         )
 
@@ -295,9 +299,10 @@ if __name__ == '__main__':
             # EMDQN
 
             if emdqn or ib:
-
-                sequence.append([z, action, np.clip(rew, -1, 1)])
-
+                if args.ib2:
+                    sequence.append([obs, action, np.clip(rew, -1, 1)])
+                else:
+                    sequence.append([z, action, np.clip(rew, -1, 1)])
             replay_buffer.add(obs, action, rew, new_obs, float(done))
             obs = new_obs
             if done:
@@ -331,12 +336,16 @@ if __name__ == '__main__':
 
                     for i in range(args.batch_size):
                         _, z_mean, z_logvar = \
-                            act(np.array(obs)[None], update_eps=exploration.value(num_iters),
+                            act(np.array(obses_t[i])[None], update_eps=exploration.value(num_iters),
                                 act_noise=z_noise[[i], :])
-                        z_mean, z_logvar = z_mean.squeeze(), z_logvar.squeeze()
-                        # print(z_mean.shape,z_logvar.shape)
-                        z_std = np.exp(z_logvar / 2)
-                        z = np.concatenate((z_mean, z_std))
+                        if args.ib2:
+                            z=obses_t[i]
+                        else:
+                            z_mean, z_logvar = z_mean.squeeze(), z_logvar.squeeze()
+                            # print(z_mean.shape,z_logvar.shape)
+                            z_std = np.exp(z_logvar / 2)
+                            z = np.concatenate((z_mean, z_std))
+
                         z = np.dot(rp, z.flatten())
                         # print(z.shape)
                         z = z.reshape((latent_dim))
