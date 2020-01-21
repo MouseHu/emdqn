@@ -320,7 +320,6 @@ def build_act_ib(make_obs_ph, q_func, z_noise, num_actions, scope="deepq", reuse
 
         eps = tf.get_variable("eps", (), initializer=tf.constant_initializer(0))
 
-
         q_values, _, _, z_mean, z_logvar, _ = q_func(observations_ph.get(), z_noise, num_actions, scope="q_func")
 
         deterministic_actions = tf.argmax(q_values, axis=1)
@@ -344,7 +343,6 @@ def build_train_ib(make_obs_ph, model_func, num_actions, optimizer,
 
                    grad_norm_clipping=None, gamma=1.0, beta=1.0, theta=1, double_q=True,
                    emdqn=True, vae=True, ib=True, scope="deepq_ib", reuse=None):
-
     """Creates the train function:
 
     Parameters
@@ -403,17 +401,14 @@ def build_train_ib(make_obs_ph, model_func, num_actions, optimizer,
         # set up placeholders
         obs_t_input = U.ensure_tf_input(make_obs_ph("obs_t"))
 
-
         act_t_ph = tf.placeholder(tf.int32, [None], name="action")
         rew_t_ph = tf.placeholder(tf.float32, [None], name="reward")
         z_noise_t = tf.placeholder(tf.float32, [None, 512], name="z_noise")
-
 
         z_noise_tp1 = tf.placeholder(tf.float32, [None, 512], name="z_noise_tp1")
         obs_tp1_input = U.ensure_tf_input(make_obs_ph("obs_tp1"))
         done_mask_ph = tf.placeholder(tf.float32, [None], name="done")
         importance_weights_ph = tf.placeholder(tf.float32, [None], name="weight")
-
 
         inputs = [
             obs_t_input,
@@ -436,14 +431,14 @@ def build_train_ib(make_obs_ph, model_func, num_actions, optimizer,
             inputs.append(obs_vae_input)
             inputs.append(z_noise_vae)
         # q network evaluation
-        q_t, v_mean_t, v_logvar_t, z_mean_t, z_logvar_t, _ = model_func(obs_t_input.get(), z_noise_t, num_actions,
+        q_t, v_mean_t, v_logvar_t, z_mean_t, z_logvar_t, recon_obs_t = model_func(obs_t_input.get(), z_noise_t, num_actions,
                                                                         scope="q_func",
                                                                         reuse=True)
         if vae or ib:
             q_vae, v_mean_vae, v_logvar_vae, z_mean_vae, z_logvar_vae, recon_obs = model_func(obs_vae_input.get(),
-                                                                                          z_noise_vae, num_actions,
-                                                                                          scope="q_func",
-                                                                                          reuse=True)
+                                                                                              z_noise_vae, num_actions,
+                                                                                              scope="q_func",
+                                                                                              reuse=True)
 
         # q_t = q_func(obs_t_input.get(), num_actions, scope="q_func", reuse=True)  # reuse parameters from act
 
@@ -480,23 +475,24 @@ def build_train_ib(make_obs_ph, model_func, num_actions, optimizer,
         # compute the error (potentially clipped)
         td_error = q_t_selected - tf.stop_gradient(q_t_selected_target)
 
-        td_loss = tf.reduce_mean(importance_weights_ph * td_error)
+        td_loss = tf.reduce_mean(importance_weights_ph * U.huber_loss(td_error))
         outputs = [td_loss]
         total_loss = td_loss
         if vae or ib:
-            encoder_loss = 1 + z_mean_vae ** 2 + tf.exp(z_logvar_vae) - z_logvar_vae
+            encoder_loss = -1 + z_mean_vae ** 2 + tf.exp(z_logvar_vae) - z_logvar_vae
             outputs.append(encoder_loss)
             total_loss += 0.1 * tf.reduce_mean(beta * encoder_loss)
         if vae:
-            decoder_loss = tf.keras.losses.binary_crossentropy(tf.reshape(recon_obs,[-1]), tf.reshape(tf.dtypes.cast(obs_vae_input._placeholder,tf.float32),[-1]))
+            decoder_loss = tf.keras.losses.binary_crossentropy(tf.reshape(recon_obs, [-1]), tf.reshape(
+                tf.dtypes.cast(obs_vae_input._placeholder, tf.float32), [-1]))
             print("here", z_mean_t.shape, z_logvar_t.shape, encoder_loss.shape, decoder_loss.shape)
             vae_loss = beta * encoder_loss + theta * decoder_loss
             outputs.append(decoder_loss)
             outputs.append(vae_loss)
             total_loss += 0.1 * tf.reduce_mean(theta * decoder_loss)
         if ib:
-            ib_loss = (v_mean_t - tf.stop_gradient(tf.expand_dims(qec_input,1))) ** 2 / tf.exp(v_logvar_t) + v_logvar_t
-            print("here2", v_mean_t.shape, tf.expand_dims(qec_input,1).shape, v_logvar_t.shape, ib_loss.shape)
+            ib_loss = (v_mean_t - tf.stop_gradient(tf.expand_dims(qec_input, 1))) ** 2 / tf.exp(v_logvar_t) + v_logvar_t
+            print("here2", v_mean_t.shape, tf.expand_dims(qec_input, 1).shape, v_logvar_t.shape, ib_loss.shape)
             total_ib_loss = ib_loss + beta * encoder_loss
             outputs.append(total_ib_loss)
             total_loss += 0.1 * tf.reduce_mean(ib_loss)
@@ -534,7 +530,6 @@ def build_train_ib(make_obs_ph, model_func, num_actions, optimizer,
                                                 clip_val=grad_norm_clipping)
         else:
             optimize_expr = optimizer.minimize(total_loss, var_list=q_func_vars)
-
 
         # update_target_fn will be called periodically to copy Q network to target Q network
         update_target_expr = []

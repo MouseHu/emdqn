@@ -39,13 +39,14 @@ def ib_model(img_in, noise, num_actions, scope, reuse=False, decoder="DECONV"):
                 out = layers.conv2d_transpose(out, 64, kernel_size=4, stride=2, activation_fn=tf.nn.relu, padding='same')
                 reconstruct = layers.conv2d_transpose(out, 4, kernel_size=8, stride=3, activation_fn=tf.nn.sigmoid,
                                                       padding='same')
+                print(reconstruct.shape)
             elif decoder == "SPD":
                 out = layers.fully_connected(z, num_outputs=64, activation_fn=tf.nn.relu)
                 out = out.reshape(-1, -1, 1, 1)
                 out = tf.tile(out, [1, 1, img_size, img_size])
                 out = layers.convolution2d(out, num_outputs=32, kernel_size=3, stride=1, activation_fn=tf.nn.relu)
                 out = layers.convolution2d(out, num_outputs=64, kernel_size=4, stride=1, activation_fn=tf.nn.relu)
-                reconstruct = layers.convolution2d(out, num_outputs=1, kernel_size=8, stride=1,
+                reconstruct = layers.convolution2d(out, num_outputs=4, kernel_size=8, stride=1,
                                                    activation_fn=tf.nn.sigmoid)
                 print(reconstruct.shape)
             else:
