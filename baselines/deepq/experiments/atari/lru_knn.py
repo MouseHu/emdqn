@@ -119,6 +119,7 @@ class LRU_KNN:
     def update_kdtree(self):
         if self.build_tree:
             del self.tree
+        print(self.curr_capacity)
         self.tree = KDTree(self.states[:self.curr_capacity])
         self.build_tree = True
         self.build_tree_times += 1

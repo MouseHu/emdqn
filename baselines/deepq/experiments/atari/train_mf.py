@@ -157,11 +157,11 @@ if __name__ == '__main__':
         tfout = open('result_%s_%s' % (args.env, "mfec"), 'w+')
 
 
-        def act(ob, stochastic=True, update_eps=-1):
+        def act(ob, stochastic=0, update_eps=-1):
             global eps
             if update_eps >= 0:
                 eps = update_eps
-            if stochastic and np.random.rand(0, 1) < eps:
+            if np.random.rand(0, 1) < max(stochastic,eps):
                 return np.random.randint(0, env.action_space.n - 1)
             else:
                 q = []
@@ -178,6 +178,8 @@ if __name__ == '__main__':
 
         def update_ec(sequence):
             Rtd = 0.
+            actions = [seq[1] for seq in sequence]
+            print(np.bincount(actions))
             for seq in reversed(sequence):
                 s, a, r = seq
                 z = np.dot(rp, s.flatten())
@@ -221,10 +223,10 @@ if __name__ == '__main__':
             return avg_score
 
 
-        approximate_num_iters = args.num_steps / 4
+        approximate_num_iters = args.num_steps /4
         exploration = PiecewiseSchedule([
             (0, 1.0),
-            (approximate_num_iters / 50, 0.1),
+            (approximate_num_iters / 10, 0.1),
             (approximate_num_iters / 5, 0.01)
         ], outside_value=0.01)
 
@@ -250,7 +252,7 @@ if __name__ == '__main__':
             new_obs, rew, done, info = env.step(action)
             sequence.append([np.array(obs), action, np.clip(rew, -1, 1), ])
 
-            replay_buffer.add(obs, action, rew, new_obs, float(done))
+            #replay_buffer.add(obs, action, rew, new_obs, float(done))
             obs = new_obs
             if done:
                 # EMDQN
@@ -293,8 +295,6 @@ if __name__ == '__main__':
                     tfout.write("%d, %.2f\n" % (info["steps"], np.mean(info["rewards"][-100:])))
                     tfout.flush()
                 logger.record_tabular("exploration", exploration.value(num_iters))
-                if args.prioritized:
-                    logger.record_tabular("max priority", replay_buffer._max_priority)
                 fps_estimate = (float(steps_per_iter) / (float(iteration_time_est) + 1e-6)
                                 if steps_per_iter._value is not None else "calculating...")
                 logger.dump_tabular()
