@@ -161,13 +161,17 @@ if __name__ == '__main__':
             global eps
             if update_eps >= 0:
                 eps = update_eps
-            if np.random.rand(0, 1) < max(stochastic,eps):
-                return np.random.randint(0, env.action_space.n - 1)
+            if np.random.random() < max(stochastic,eps):
+                action = np.random.randint(0, env.action_space.n)
+                #print(eps,env.action_space.n,action)
+                return action
             else:
+                #print(eps,stochastic,np.random.rand(0, 1))
                 q = []
                 for a in range(env.action_space.n):
                     z = np.dot(rp, ob.flatten())
                     q.append(ec_buffer[a].knn_value(z, args.knn))
+                #print("ec",eps,np.argmax(q),q)
                 return np.argmax(q)
 
 
@@ -188,6 +192,9 @@ if __name__ == '__main__':
                 qd = ec_buffer[a].peek(z, Rtd, True)
                 if qd == None:  # new action
                     ec_buffer[a].add(z, Rtd)
+            #for a in range(env.action_space.n):
+            #    print(env.action_space.n,ec_buffer[a].curr_capacity)
+
 
 
         # Create training graph and replay buffer
