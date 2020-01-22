@@ -71,7 +71,7 @@ import tensorflow as tf
 import baselines.common.tf_util as U
 
 
-def build_act(make_obs_ph, q_func, num_actions, scope="deepq", reuse=None):
+def build_act_mf(make_obs_ph, q_func, num_actions, scope="deepq", reuse=None):
     """Creates the act function:
 
     Parameters
@@ -126,7 +126,7 @@ def build_act(make_obs_ph, q_func, num_actions, scope="deepq", reuse=None):
         return act
 
 
-def build_train(make_obs_ph, q_func, num_actions, optimizer, grad_norm_clipping=None, gamma=1.0, double_q=True,
+def build_train_mf(make_obs_ph, q_func, num_actions, optimizer, grad_norm_clipping=None, gamma=1.0, double_q=True,
                 emdqn=True, scope="deepq", reuse=None):
     """Creates the train function:
 
@@ -176,7 +176,7 @@ def build_train(make_obs_ph, q_func, num_actions, optimizer, grad_norm_clipping=
     debug: {str: function}
         a bunch of functions to print debug data like q_values.
     """
-    act_f = build_act(make_obs_ph, q_func, num_actions, scope=scope, reuse=reuse)
+    act_f = build_act_mf(make_obs_ph, q_func, num_actions, scope=scope, reuse=reuse)
 
     with tf.variable_scope(scope, reuse=reuse):
         # set up placeholders
