@@ -25,10 +25,10 @@ def ib_model(img_in, noise, num_actions, scope, reuse=False, decoder="DECONV"):
         z = z_mean + noise * tf.exp(0.5 * z_logvar)
 
         with tf.variable_scope("action_value"):
-            q_h = layers.fully_connected(z, num_outputs=128, activation_fn=tf.nn.relu, scope="q_h_1", reuse=True)
+            q_h = layers.fully_connected(z, num_outputs=128, activation_fn=tf.nn.relu, scope="q_h_1", reuse=tf.AUTO_REUSE)
             q_h_deterministic = layers.fully_connected(z_mean, num_outputs=128, activation_fn=tf.nn.relu, scope="q_h_1",
                                                        reuse=True)
-            q_func = layers.fully_connected(q_h, num_outputs=num_actions, activation_fn=None, scope="q_h_2", reuse=True)
+            q_func = layers.fully_connected(q_h, num_outputs=num_actions, activation_fn=None, scope="q_h_2", reuse=tf.AUTO_REUSE)
             q_func_deterministic = layers.fully_connected(q_h_deterministic, num_outputs=num_actions,
                                                           activation_fn=None, scope="q_h_2", reuse=True)
         with tf.variable_scope("state_value"):

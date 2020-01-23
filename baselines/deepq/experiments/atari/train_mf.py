@@ -143,7 +143,7 @@ if __name__ == '__main__':
         # EMDQN
 
         ec_buffer = []
-        buffer_size = 5000000
+        buffer_size = 1000000
         latent_dim = 8
         input_dim = 84 * 84 * 4
         for i in range(env.action_space.n):
