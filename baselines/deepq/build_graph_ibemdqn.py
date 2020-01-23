@@ -69,6 +69,8 @@ The functions in this file can are used to create the following functions:
 """
 import tensorflow as tf
 import baselines.common.tf_util as U
+
+
 def build_act_ib(make_obs_ph, q_func, z_noise, num_actions, scope="deepq", reuse=None):
     """Creates the act function:
 
@@ -106,7 +108,7 @@ def build_act_ib(make_obs_ph, q_func, z_noise, num_actions, scope="deepq", reuse
 
         eps = tf.get_variable("eps", (), initializer=tf.constant_initializer(0))
 
-        q_values, _, _, z_mean, z_logvar, _ = q_func(observations_ph.get(), z_noise, num_actions, scope="q_func")
+        q_values, _, _, _, z_mean, z_logvar, _ = q_func(observations_ph.get(), z_noise, num_actions, scope="q_func")
 
         deterministic_actions = tf.argmax(q_values, axis=1)
 
@@ -217,9 +219,10 @@ def build_train_ib(make_obs_ph, model_func, num_actions, optimizer,
             inputs.append(obs_vae_input)
             inputs.append(z_noise_vae)
         # q network evaluation
-        q_t, v_mean_t, v_logvar_t, z_mean_t, z_logvar_t, recon_obs_t = model_func(obs_t_input.get(), z_noise_t, num_actions,
-                                                                        scope="q_func",
-                                                                        reuse=True)
+        q_t, v_mean_t, v_logvar_t, z_mean_t, z_logvar_t, recon_obs_t = model_func(obs_t_input.get(), z_noise_t,
+                                                                                  num_actions,
+                                                                                  scope="q_func",
+                                                                                  reuse=True)
         if vae or ib:
             q_vae, v_mean_vae, v_logvar_vae, z_mean_vae, z_logvar_vae, recon_obs = model_func(obs_vae_input.get(),
                                                                                               z_noise_vae, num_actions,
@@ -232,10 +235,11 @@ def build_train_ib(make_obs_ph, model_func, num_actions, optimizer,
 
         # target q network evalution
 
-        q_tp1, v_mean_tp1, v_logvar_tp1, z_mean_tp1, z_logvar_tp1, recon_obs_tp1 = model_func(obs_tp1_input.get(),
-                                                                                              z_noise_tp1,
-                                                                                              num_actions,
-                                                                                              scope="target_q_func")
+        q_tp1, q_d_tp1, v_mean_tp1, v_logvar_tp1, z_mean_tp1, z_logvar_tp1, recon_obs_tp1 = model_func(
+            obs_tp1_input.get(),
+            z_noise_tp1,
+            num_actions,
+            scope="target_q_func")
 
         target_q_func_vars = U.scope_vars(U.absolute_scope_name("target_q_func"))
 
@@ -245,7 +249,7 @@ def build_train_ib(make_obs_ph, model_func, num_actions, optimizer,
         # compute estimate of best possible value starting from state at t + 1
         if double_q:
 
-            q_tp1_using_online_net, _, _, _, _, _ = model_func(obs_tp1_input.get(), z_noise_tp1, num_actions,
+            q_tp1_using_online_net, _,_, _, _, _, _ = model_func(obs_tp1_input.get(), z_noise_tp1, num_actions,
                                                                scope="q_func",
                                                                reuse=True)
 

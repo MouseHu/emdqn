@@ -69,65 +69,25 @@ The functions in this file can are used to create the following functions:
 """
 import tensorflow as tf
 import baselines.common.tf_util as U
+import numpy as np
 
 
-def build_act_mf(make_obs_ph, q_func, num_actions, scope="deepq", reuse=None):
-    """Creates the act function:
-
-    Parameters
-    ----------
-    make_obs_ph: str -> tf.placeholder or TfInput
-        a function that take a name and creates a placeholder of input with that name
-    q_func: (tf.Variable, int, str, bool) -> tf.Variable
-        the model that takes the following inputs:
-            observation_in: object
-                the output of observation placeholder
-            num_actions: int
-                number of actions
-            scope: str
-            reuse: bool
-                should be passed to outer variable scope
-        and returns a tensor of shape (batch_size, num_actions) with values of every action.
-    num_actions: int
-        number of actions.
-    scope: str or VariableScope
-        optional scope for variable_scope.
-    reuse: bool or None
-        whether or not the variables should be reused. To be able to reuse the scope must be given.
-
-    Returns
-    -------
-    act: (tf.Variable, bool, float) -> tf.Variable
-        function to select and action given observation.
-`       See the top of the file for details.
-    """
+def build_act_mf(make_obs_ph, q_func, z_noise, num_actions, scope="deepq", reuse=None):
     with tf.variable_scope(scope, reuse=reuse):
         observations_ph = U.ensure_tf_input(make_obs_ph("observation"))
-        stochastic_ph = tf.placeholder(tf.bool, (), name="stochastic")
-        update_eps_ph = tf.placeholder(tf.float32, (), name="update_eps")
+        q, v_mean, v_logvar, z_mean, z_logvar, recon_obs = q_func(observations_ph.get(), z_noise,
+                                                                  num_actions,
+                                                                  scope="q_func",
+                                                                  reuse=True)
 
-        eps = tf.get_variable("eps", (), initializer=tf.constant_initializer(0))
+        act = U.function(inputs=[observations_ph],
+                         outputs=[z_mean, z_logvar])
 
-        q_values = q_func(observations_ph.get(), num_actions, scope="q_func")
-        deterministic_actions = tf.argmax(q_values, axis=1)
-
-        batch_size = tf.shape(observations_ph.get())[0]
-        random_actions = tf.random_uniform(tf.stack([batch_size]), minval=0, maxval=num_actions, dtype=tf.int64)
-        chose_random = tf.random_uniform(tf.stack([batch_size]), minval=0, maxval=1, dtype=tf.float32) < eps
-        stochastic_actions = tf.where(chose_random, random_actions, deterministic_actions)
-
-        output_actions = tf.cond(stochastic_ph, lambda: stochastic_actions, lambda: deterministic_actions)
-        update_eps_expr = eps.assign(tf.cond(update_eps_ph >= 0, lambda: update_eps_ph, lambda: eps))
-
-        act = U.function(inputs=[observations_ph, stochastic_ph, update_eps_ph],
-                         outputs=output_actions,
-                         givens={update_eps_ph: -1.0, stochastic_ph: True},
-                         updates=[update_eps_expr])
         return act
 
 
-def build_train_mf(make_obs_ph, q_func, num_actions, optimizer, grad_norm_clipping=None, gamma=1.0, double_q=True,
-                emdqn=True, scope="deepq", reuse=None):
+def build_train_mf(make_obs_ph, q_func, num_actions, optimizer, grad_norm_clipping=None, gamma=1.0, scope="mfec",
+                   alpha=1.0, beta=1.0, theta=1.0, latent_dim=32, ib=True, reuse=None):
     """Creates the train function:
 
     Parameters
@@ -176,110 +136,74 @@ def build_train_mf(make_obs_ph, q_func, num_actions, optimizer, grad_norm_clippi
     debug: {str: function}
         a bunch of functions to print debug data like q_values.
     """
-    act_f = build_act_mf(make_obs_ph, q_func, num_actions, scope=scope, reuse=reuse)
+    act_noise = tf.placeholder(tf.float32, [None, latent_dim], name="act_noise")
+    act_f = build_act_mf(make_obs_ph, q_func, act_noise, num_actions, scope=scope, reuse=reuse)
 
     with tf.variable_scope(scope, reuse=reuse):
         # set up placeholders
-        obs_t_input = U.ensure_tf_input(make_obs_ph("obs_t"))
-        act_t_ph = tf.placeholder(tf.int32, [None], name="action")
-        rew_t_ph = tf.placeholder(tf.float32, [None], name="reward")
-        obs_tp1_input = U.ensure_tf_input(make_obs_ph("obs_tp1"))
-        done_mask_ph = tf.placeholder(tf.float32, [None], name="done")
-        importance_weights_ph = tf.placeholder(tf.float32, [None], name="weight")
 
         # EMDQN
-        if emdqn:
-            qec_input = tf.placeholder(tf.float32, [None], name='qec')
 
-        # q network evaluation
-        q_t = q_func(obs_t_input.get(), num_actions, scope="q_func", reuse=True)  # reuse parameters from act
+        obs_vae_input = U.ensure_tf_input(make_obs_ph("obs_vae"))
+        z_noise_vae = tf.placeholder(tf.float32, [None, latent_dim], name="z_noise_vae")
+        inputs = [obs_vae_input,z_noise_vae]
+        if ib:
+            qec_input = tf.placeholder(tf.float32, [None], name='qec')
+            inputs.append(qec_input)
+        outputs = []
+
+        q_vae, v_mean_vae, v_logvar_vae, z_mean_vae, z_logvar_vae, recon_obs = q_func(obs_vae_input.get(),
+                                                                                      z_noise_vae, num_actions,
+                                                                                      scope="q_func",
+                                                                                      reuse=True)
         q_func_vars = U.scope_vars(U.absolute_scope_name("q_func"))
 
-        # target q network evalution
-        q_tp1 = q_func(obs_tp1_input.get(), num_actions, scope="target_q_func")
-        target_q_func_vars = U.scope_vars(U.absolute_scope_name("target_q_func"))
+        encoder_loss = -1 + z_mean_vae ** 2 + tf.exp(z_logvar_vae) - z_logvar_vae
 
-        # q scores for actions which we know were selected in the given state.
-        q_t_selected = tf.reduce_sum(q_t * tf.one_hot(act_t_ph, num_actions), 1)
+        total_loss = tf.reduce_mean(beta * encoder_loss)
+        decoder_loss = tf.keras.losses.binary_crossentropy(tf.reshape(recon_obs, [-1]), tf.reshape(
+            tf.dtypes.cast(obs_vae_input._placeholder, tf.float32), [-1]))
+        print("here", z_mean_vae.shape, z_logvar_vae.shape, encoder_loss.shape, decoder_loss.shape)
+        vae_loss = beta * encoder_loss + theta * decoder_loss
+        outputs.append(encoder_loss)
+        outputs.append(decoder_loss)
+        outputs.append(vae_loss)
+        total_loss += tf.reduce_mean(theta * decoder_loss)
+        if ib:
+            ib_loss = (v_mean_vae - tf.stop_gradient(tf.expand_dims(qec_input, 1))) ** 2 / tf.exp(
+                v_logvar_vae) + v_logvar_vae
+            print("here2", v_mean_vae.shape, tf.expand_dims(qec_input, 1).shape, v_logvar_vae.shape, ib_loss.shape)
+            total_ib_loss = alpha * ib_loss + beta * encoder_loss
+            outputs.append(total_ib_loss)
+            total_loss += tf.reduce_mean(alpha * ib_loss)
 
-        # compute estimate of best possible value starting from state at t + 1
-        if double_q:
-            q_tp1_using_online_net = q_func(obs_tp1_input.get(), num_actions, scope="q_func", reuse=True)
-            q_tp1_best_using_online_net = tf.arg_max(q_tp1_using_online_net, 1)
-            q_tp1_best = tf.reduce_sum(q_tp1 * tf.one_hot(q_tp1_best_using_online_net, num_actions), 1)
-        else:
-            q_tp1_best = tf.reduce_max(q_tp1, 1)
-        q_tp1_best_masked = (1.0 - done_mask_ph) * q_tp1_best
-
-        # compute RHS of bellman equation
-        q_t_selected_target = rew_t_ph + gamma * q_tp1_best_masked
-
-        # compute the error (potentially clipped)
-        td_error = q_t_selected - tf.stop_gradient(q_t_selected_target)
-        # EMDQN
-        if emdqn:
-            qec_error = q_t_selected - tf.stop_gradient(qec_input)
-            errors = U.huber_loss(td_error) + 0.1 * U.huber_loss(qec_error)
-        else:
-            errors = U.huber_loss(td_error)
-
-        weighted_error = tf.reduce_mean(importance_weights_ph * errors)
-        # compute optimization op (potentially with gradient clipping)
         if grad_norm_clipping is not None:
             optimize_expr = U.minimize_and_clip(optimizer,
-                                                weighted_error,
+                                                total_loss,
                                                 var_list=q_func_vars,
                                                 clip_val=grad_norm_clipping)
         else:
-            optimize_expr = optimizer.minimize(weighted_error, var_list=q_func_vars)
-
-        # update_target_fn will be called periodically to copy Q network to target Q network
-        update_target_expr = []
-        for var, var_target in zip(sorted(q_func_vars, key=lambda v: v.name),
-                                   sorted(target_q_func_vars, key=lambda v: v.name)):
-            update_target_expr.append(var_target.assign(var))
-        update_target_expr = tf.group(*update_target_expr)
-
+            optimize_expr = optimizer.minimize(total_loss, var_list=q_func_vars)
         # Create callable functions
         # EMDQN
-        if emdqn:
-            train = U.function(
-                inputs=[
-                    obs_t_input,
-                    act_t_ph,
-                    rew_t_ph,
-                    obs_tp1_input,
-                    done_mask_ph,
-                    importance_weights_ph,
-                    qec_input
-                ],
-                outputs=[td_error, qec_error],
-                updates=[optimize_expr]
-            )
-        else:
-            train = U.function(
-                inputs=[
-                    obs_t_input,
-                    act_t_ph,
-                    rew_t_ph,
-                    obs_tp1_input,
-                    done_mask_ph,
-                    importance_weights_ph
-                ],
-                outputs=td_error,
-                updates=[optimize_expr]
-            )
-        get_q_t_selected = U.function(
-            inputs=[
-                obs_t_input,
-                act_t_ph
-            ],
-            outputs=q_t_selected
+        total_loss_summary = tf.summary.scalar("total loss", total_loss)
+        z_var_summary = tf.summary.scalar("z_var", tf.reduce_mean(tf.exp(z_logvar_vae)))
+        encoder_loss_summary = tf.summary.scalar("encoder loss", tf.reduce_mean(encoder_loss))
+        decoder_loss_summary = tf.summary.scalar("decoder loss", tf.reduce_mean(decoder_loss))
+        summaries = [total_loss_summary, z_var_summary, encoder_loss_summary, decoder_loss_summary]
+        if ib:
+            ib_loss_summary = tf.summary.scalar("ib loss", tf.reduce_mean(ib_loss))
+            total_ib_loss_summary = tf.summary.scalar("total ib loss", tf.reduce_mean(total_ib_loss))
+            summaries.append(ib_loss_summary)
+            summaries.append(total_ib_loss_summary)
+
+        summary = tf.summary.merge(summaries)
+        outputs.append(summary)
+
+        train = U.function(
+            inputs=inputs,
+            outputs=[total_loss,summary],
+            updates=[optimize_expr]
         )
-        update_target = U.function([], [], updates=[update_target_expr])
 
-        q_values = U.function([obs_t_input], q_t)
-
-        return act_f, train, update_target, {'q_values': q_values}, get_q_t_selected
-
-
+        return train
