@@ -160,7 +160,7 @@ if __name__ == '__main__':
 
         ec_buffer = []
         buffer_size = 1000000
-        latent_dim = 2*args.latent_dim
+        latent_dim = 2 * args.latent_dim
         # input_dim = 1024
         for i in range(env.action_space.n):
             ec_buffer.append(LRU_KNN(buffer_size, latent_dim, 'game'))
@@ -234,7 +234,7 @@ if __name__ == '__main__':
             for i in range(30):
                 tobs = tenv.reset()
                 while True:
-                    action,z = \
+                    action, z = \
                         act(np.array(tobs)[None], stochastic=0.05, act_noise=np.random.randn((1, args.latent_dim)))[0]
                     tobs, rew, done, info = tenv.step(action)
                     print(info)
@@ -293,7 +293,11 @@ if __name__ == '__main__':
 
                     update_counter += 1
                     seq_obs = np.array([np.array(seq[0]) for seq in sequence])
-
+                    if args.ib:
+                        seq_zs = [seq[1] for seq in sequence]
+                        qec_input = [np.max([ec_buffer[a].knn_value(z) for a in range(env.action_space.n)]) for z in
+                                     seq_zs]
+                        qec_input = np.array(qec_input).reshape([-1])
                     # if update_counter % 2000 == 1999:
                     #     print("qec_mean:", np.mean(qecwatch))
                     #     print("qec_fount: %.2f" % (1.0 * qec_found / args.batch_size / update_counter))
@@ -305,19 +309,16 @@ if __name__ == '__main__':
 
                     # Minimize the error in Bellman's equation and compute TD-error
                     z_noise_vae = np.random.randn(len(sequence), args.latent_dim)
-
-                    inputs = [seq_obs, z_noise_vae]
-                    if args.ib:
-                        seq_zs = [seq[1] for seq in sequence]
-                        qec_input = [np.max([ec_buffer[a].knn_value(z) for a in range(env.action_space.n)]) for z in
-                                     seq_zs]
-                        qec_input = np.array(qec_input).reshape([-1])
-                        inputs.append(qec_input)
-                    total_errors, summary = train(*inputs)
-
-                    # Update the priorities in the replay buffer
-
-                    tf_writer.add_summary(summary, global_step=info["steps"])
+                    inds = np.arange(len(sequence))
+                    np.random.shuffle(inds)
+                    for start in range(0, args.batchsize, len(sequence)):
+                        end = min(start + args.batch, len(sequence))
+                        batch_inds = inds[start:end]
+                        inputs = [seq_obs[batch_inds], z_noise_vae[batch_inds]]
+                        if args.ib:
+                            inputs.append(qec_input[batch_inds])
+                        total_errors, summary = train(*inputs)
+                        tf_writer.add_summary(summary, global_step=info["steps"] + start)
 
                     # tf_writer.add_summary(summary,global_step=info["steps"])
                 # Update target network.
