@@ -62,7 +62,7 @@ def parse_args():
                         help="It present data will saved/loaded from Azure. Should be in format ACCOUNT_NAME:ACCOUNT_KEY:CONTAINER")
     parser.add_argument("--save-freq", type=int, default=1e6,
                         help="save model once every time this many iterations are completed")
-    parser.add_argument("--latent_dim", type=int, default=512,
+    parser.add_argument("--latent_dim", type=int, default=32,
                         help="latent_dim")
     parser.add_argument("--comment", type=str, default=datetime.datetime.now().strftime("%I-%M_%B-%d-%Y"),
                         help="discription for this experiment")
@@ -159,7 +159,7 @@ if __name__ == '__main__':
 
         ec_buffer = []
         buffer_size = 1000000
-        latent_dim = 64
+        latent_dim = 2*args.latent_dim
         # input_dim = 1024
         for i in range(env.action_space.n):
             ec_buffer.append(LRU_KNN(buffer_size, latent_dim, 'game'))
@@ -215,14 +215,13 @@ if __name__ == '__main__':
 
 
         # Create training graph and replay buffer
-        z_func, train = deepq.build_train_ib(
+        z_func, train = deepq.build_train_mf(
             make_obs_ph=lambda name: U.Uint8Input(env.observation_space.shape, name=name),
-            model_func=ib_dueling_model if args.dueling else ib_model,
+            q_func= ib_model,
             num_actions=env.action_space.n,
             optimizer=tf.train.AdamOptimizer(learning_rate=args.lr, epsilon=1e-4),
             gamma=0.99,
             grad_norm_clipping=10,
-            double_q=args.double_q,
             ib=args.ib,
         )
 
