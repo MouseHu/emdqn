@@ -75,12 +75,12 @@ import numpy as np
 def build_act_mf(make_obs_ph, q_func, z_noise, num_actions, scope="deepq", reuse=None):
     with tf.variable_scope(scope, reuse=reuse):
         observations_ph = U.ensure_tf_input(make_obs_ph("observation"))
-        q, v_mean, v_logvar, z_mean, z_logvar, recon_obs = q_func(observations_ph.get(), z_noise,
+        q, q_deterministic, v_mean, v_logvar, z_mean, z_logvar, recon_obs = q_func(observations_ph.get(), z_noise,
                                                                   num_actions,
                                                                   scope="q_func",
-                                                                  reuse=True)
+                                                                  reuse=tf.AUTO_REUSE)
 
-        act = U.function(inputs=[observations_ph],
+        act = U.function(inputs=[observations_ph,z_noise],
                          outputs=[z_mean, z_logvar])
 
         return act
@@ -152,7 +152,7 @@ def build_train_mf(make_obs_ph, q_func, num_actions, optimizer, grad_norm_clippi
             inputs.append(qec_input)
         outputs = []
 
-        q_vae, v_mean_vae, v_logvar_vae, z_mean_vae, z_logvar_vae, recon_obs = q_func(obs_vae_input.get(),
+        q_vae, q_deterministic_vae, v_mean_vae, v_logvar_vae, z_mean_vae, z_logvar_vae, recon_obs = q_func(obs_vae_input.get(),
                                                                                       z_noise_vae, num_actions,
                                                                                       scope="q_func",
                                                                                       reuse=True)
@@ -206,4 +206,4 @@ def build_train_mf(make_obs_ph, q_func, num_actions, optimizer, grad_norm_clippi
             updates=[optimize_expr]
         )
 
-        return train
+        return act_f, train

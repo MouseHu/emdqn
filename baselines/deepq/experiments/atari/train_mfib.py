@@ -54,6 +54,7 @@ def parse_args():
                         help="number of iterations between every optimization step")
     parser.add_argument("--target-update-freq", type=int, default=40000,
                         help="number of iterations between every target network update")
+    parser.add_argument("--knn", type=int, default=4, help="number of k nearest neighbours")
     # Bells and whistles
     # Checkpointing
     parser.add_argument("--save-dir", type=str, default=None,
@@ -62,7 +63,7 @@ def parse_args():
                         help="It present data will saved/loaded from Azure. Should be in format ACCOUNT_NAME:ACCOUNT_KEY:CONTAINER")
     parser.add_argument("--save-freq", type=int, default=1e6,
                         help="save model once every time this many iterations are completed")
-    parser.add_argument("--latent_dim", type=int, default=512,
+    parser.add_argument("--latent_dim", type=int, default=32,
                         help="latent_dim")
     parser.add_argument("--comment", type=str, default=datetime.datetime.now().strftime("%I-%M_%B-%d-%Y"),
                         help="discription for this experiment")
@@ -159,7 +160,7 @@ if __name__ == '__main__':
 
         ec_buffer = []
         buffer_size = 1000000
-        latent_dim = 64
+        latent_dim = 2*args.latent_dim
         # input_dim = 1024
         for i in range(env.action_space.n):
             ec_buffer.append(LRU_KNN(buffer_size, latent_dim, 'game'))
@@ -177,7 +178,7 @@ if __name__ == '__main__':
         def act(ob, act_noise, stochastic=0, update_eps=-1):
             global eps
             z_mean, z_logvar = z_func(ob, act_noise)
-            z = np.concatenate((z_mean.numpy().squeeze(), np.exp(1 / 2 * z_logvar.numpy().squeeze())))
+            z = np.concatenate((z_mean.squeeze(), np.exp(1 / 2 * z_logvar.squeeze())))
             if update_eps >= 0:
                 eps = update_eps
             if np.random.random() < max(stochastic, eps):
@@ -215,14 +216,13 @@ if __name__ == '__main__':
 
 
         # Create training graph and replay buffer
-        z_func, train = deepq.build_train_ib(
+        z_func, train = deepq.build_train_mf(
             make_obs_ph=lambda name: U.Uint8Input(env.observation_space.shape, name=name),
-            model_func=ib_dueling_model if args.dueling else ib_model,
+            q_func=ib_model,
             num_actions=env.action_space.n,
             optimizer=tf.train.AdamOptimizer(learning_rate=args.lr, epsilon=1e-4),
             gamma=0.99,
             grad_norm_clipping=10,
-            double_q=args.double_q,
             ib=args.ib,
         )
 
@@ -287,13 +287,12 @@ if __name__ == '__main__':
                 update_ec(sequence)
                 obs = env.reset()
 
-                if (num_iters > max(5 * args.batch_size, args.replay_buffer_size // 20) and
-                        num_iters % args.t == 0):
+                if num_iters > max(5 * args.batch_size, 0):
                     # Sample a bunch of transitions from replay buffer
                     # EMDQN
 
                     update_counter += 1
-                    seq_obs = [seq[0] for seq in sequence]
+                    seq_obs = np.array([np.array(seq[0]) for seq in sequence])
 
                     # if update_counter % 2000 == 1999:
                     #     print("qec_mean:", np.mean(qecwatch))
@@ -305,7 +304,7 @@ if __name__ == '__main__':
                     #     qecwatch = []
 
                     # Minimize the error in Bellman's equation and compute TD-error
-                    z_noise_vae = np.random.randn(args.batch_size, args.latent_dim)
+                    z_noise_vae = np.random.randn(len(sequence), args.latent_dim)
 
                     inputs = [seq_obs, z_noise_vae]
                     if args.ib:
@@ -325,11 +324,11 @@ if __name__ == '__main__':
                 # if num_iters % args.target_update_freq == 0:  # NOTE: why not 10000?
                 update_kdtree()
 
-                if start_time is not None:
-                    steps_per_iter.update(info['steps'] - start_steps)
-                    iteration_time_est.update(time.time() - start_time)
-                start_time, start_steps = time.time(), info["steps"]
-                value_summary.value[1].simple_value = num_iters
+            if start_time is not None:
+                steps_per_iter.update(info['steps'] - start_steps)
+                iteration_time_est.update(time.time() - start_time)
+            start_time, start_steps = time.time(), info["steps"]
+            value_summary.value[1].simple_value = num_iters
 
             # Save the model and training state.
             '''
@@ -360,8 +359,6 @@ if __name__ == '__main__':
                     tfout.write("%d, %.2f\n" % (info["steps"], np.mean(info["rewards"][-100:])))
                     tfout.flush()
                 logger.record_tabular("exploration", exploration.value(num_iters))
-                if args.prioritized:
-                    logger.record_tabular("max priority", replay_buffer._max_priority)
                 fps_estimate = (float(steps_per_iter) / (float(iteration_time_est) + 1e-6)
                                 if steps_per_iter._value is not None else "calculating...")
                 logger.dump_tabular()
