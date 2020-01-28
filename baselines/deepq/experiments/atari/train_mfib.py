@@ -49,7 +49,7 @@ def parse_args():
     parser.add_argument("--lr", type=float, default=1e-4, help="learning rate for Adam optimizer")
     parser.add_argument("--num-steps", type=int, default=int(1e7),
                         help="total number of steps to run the environment for")
-    parser.add_argument("--batch-size", type=int, default=32, help="number of transitions to optimize at the same time")
+    parser.add_argument("--batch-size", type=int, default=256, help="number of transitions to optimize at the same time")
     parser.add_argument("--learning-freq", type=int, default=4,
                         help="number of iterations between every optimization step")
     parser.add_argument("--target-update-freq", type=int, default=40000,
@@ -286,7 +286,8 @@ if __name__ == '__main__':
                 # EMDQN
                 update_ec(sequence)
                 obs = env.reset()
-
+                update_kdtree()
+            '''
                 if num_iters > max(5 * args.batch_size, 0):
                     # Sample a bunch of transitions from replay buffer
                     # EMDQN
@@ -311,8 +312,8 @@ if __name__ == '__main__':
                     z_noise_vae = np.random.randn(len(sequence), args.latent_dim)
                     inds = np.arange(len(sequence))
                     np.random.shuffle(inds)
-                    for start in range(0, args.batchsize, len(sequence)):
-                        end = min(start + args.batch, len(sequence))
+                    for start in range(0, args.batch_size, len(sequence)):
+                        end = min(start + args.batch_size, len(sequence))
                         batch_inds = inds[start:end]
                         inputs = [seq_obs[batch_inds], z_noise_vae[batch_inds]]
                         if args.ib:
@@ -323,8 +324,7 @@ if __name__ == '__main__':
                     # tf_writer.add_summary(summary,global_step=info["steps"])
                 # Update target network.
                 # if num_iters % args.target_update_freq == 0:  # NOTE: why not 10000?
-                update_kdtree()
-
+            '''
             if start_time is not None:
                 steps_per_iter.update(info['steps'] - start_steps)
                 iteration_time_est.update(time.time() - start_time)
