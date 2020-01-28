@@ -209,7 +209,7 @@ def build_train_mfvae(make_obs_ph, q_func, num_actions, optimizer, grad_norm_cli
             updates=[optimize_expr_vae]
         )
         ib_train = U.function(
-            inputs=inputs,
+            inputs=ib_inputs,
             outputs=[total_ib_loss, ib_summary],
             updates=[optimize_expr_vae]
         )

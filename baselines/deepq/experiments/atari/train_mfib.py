@@ -295,7 +295,7 @@ if __name__ == '__main__':
                     seq_obs = np.array([np.array(seq[0]) for seq in sequence])
                     if args.ib:
                         seq_zs = [seq[1] for seq in sequence]
-                        qec_input = [np.max([ec_buffer[a].knn_value(z) for a in range(env.action_space.n)]) for z in
+                        qec_input = [np.max([ec_buffer[a].knn_value(z,args.knn) for a in range(env.action_space.n)]) for z in
                                      seq_zs]
                         qec_input = np.array(qec_input).reshape([-1])
                     # if update_counter % 2000 == 1999:
@@ -311,8 +311,8 @@ if __name__ == '__main__':
                     z_noise_vae = np.random.randn(len(sequence), args.latent_dim)
                     inds = np.arange(len(sequence))
                     np.random.shuffle(inds)
-                    for start in range(0, args.batchsize, len(sequence)):
-                        end = min(start + args.batch, len(sequence))
+                    for start in range(0, args.batch_size, len(sequence)):
+                        end = min(start + args.batch_size, len(sequence))
                         batch_inds = inds[start:end]
                         inputs = [seq_obs[batch_inds], z_noise_vae[batch_inds]]
                         if args.ib:
