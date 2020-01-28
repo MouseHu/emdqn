@@ -235,7 +235,7 @@ if __name__ == '__main__':
                 tobs = tenv.reset()
                 while True:
                     action, z = \
-                        act(np.array(tobs)[None], stochastic=0.05, act_noise=np.random.randn((1, args.latent_dim)))[0]
+                        act(np.array(tobs)[None], stochastic=0.05, act_noise=np.random.randn(1, args.latent_dim))[0]
                     tobs, rew, done, info = tenv.step(action)
                     print(info)
                     if done and len(info["rewards"]) > 0:
