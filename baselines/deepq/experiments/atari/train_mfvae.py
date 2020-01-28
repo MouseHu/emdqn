@@ -49,12 +49,13 @@ def parse_args():
     parser.add_argument("--lr", type=float, default=1e-4, help="learning rate for Adam optimizer")
     parser.add_argument("--num-steps", type=int, default=int(1e7),
                         help="total number of steps to run the environment for")
-    parser.add_argument("--batch-size", type=int, default=256, help="number of transitions to optimize at the same time")
+    parser.add_argument("--batch-size", type=int, default=32, help="number of transitions to optimize at the same time")
     parser.add_argument("--learning-freq", type=int, default=4,
                         help="number of iterations between every optimization step")
     parser.add_argument("--target-update-freq", type=int, default=40000,
                         help="number of iterations between every target network update")
     parser.add_argument("--knn", type=int, default=4, help="number of k nearest neighbours")
+    parser.add_argument("--begin_training", type=int, default=2.5e5, help="number of pretrain frames")
     # Bells and whistles
     # Checkpointing
     parser.add_argument("--save-dir", type=str, default=None,
@@ -73,7 +74,7 @@ def parse_args():
                  help="if true and model was previously saved then training will be resumed")
 
     # EMDQN
-    boolean_flag(parser, "ib", default=False, help="whether or not to use vae")
+    boolean_flag(parser, "train-latent", default=False, help="whether or not to further train latent")
 
     return parser.parse_args()
 
@@ -127,6 +128,8 @@ def maybe_load_model(savedir, container):
 
 if __name__ == '__main__':
     args = parse_args()
+    if args.train_latent:
+        print("Training latent")
     # Parse savedir and azure container.
     savedir = args.save_dir
     if args.save_azure_container is not None:
@@ -172,7 +175,7 @@ if __name__ == '__main__':
         sequence = []
 
         tfout = open(
-            './results/result_%s_mfib_%s' % (args.env, args.comment), 'w+')
+            './results/result_%s_mfvae_%s' % (args.env, args.comment), 'w+')
 
 
         def act(ob, act_noise, stochastic=0, update_eps=-1):
@@ -216,14 +219,14 @@ if __name__ == '__main__':
 
 
         # Create training graph and replay buffer
-        z_func, train = deepq.build_train_mf(
+        z_func, train_vae, train_ib = deepq.build_train_mfvae(
             make_obs_ph=lambda name: U.Uint8Input(env.observation_space.shape, name=name),
             q_func=ib_model,
             num_actions=env.action_space.n,
             optimizer=tf.train.AdamOptimizer(learning_rate=args.lr, epsilon=1e-4),
             gamma=0.99,
             grad_norm_clipping=10,
-            ib=args.ib,
+            vae=args.vae,
         )
 
 
@@ -235,7 +238,7 @@ if __name__ == '__main__':
                 tobs = tenv.reset()
                 while True:
                     action, z = \
-                        act(np.array(tobs)[None], stochastic=0.05, act_noise=np.random.randn(1, args.latent_dim))[0]
+                        act(np.array(tobs)[None], stochastic=0.05, act_noise=np.random.randn((1, args.latent_dim)))[0]
                     tobs, rew, done, info = tenv.step(action)
                     print(info)
                     if done and len(info["rewards"]) > 0:
@@ -252,7 +255,8 @@ if __name__ == '__main__':
         approximate_num_iters = args.num_steps / 4
         exploration = PiecewiseSchedule([
             (0, 1.0),
-            (approximate_num_iters / 50, 0.1),
+            (args.begin_training, 1.0),
+            (approximate_num_iters / 10, 0.1),
             (approximate_num_iters / 5, 0.01)
         ], outside_value=0.01)
 
@@ -286,19 +290,31 @@ if __name__ == '__main__':
                 # EMDQN
                 update_ec(sequence)
                 obs = env.reset()
-                update_kdtree()
-            '''
-                if num_iters > max(5 * args.batch_size, 0):
+
+                if num_iters < args.begin_training:
+                    # train vae
+                    update_counter += 1
+                    seq_obs = np.array([np.array(seq[0]) for seq in sequence])
+                    z_noise_vae = np.random.randn(len(sequence), args.latent_dim)
+                    inds = np.arange(len(sequence))
+                    np.random.shuffle(inds)
+                    for start in range(0, args.batch_size, len(sequence)):
+                        end = min(start + args.batch_size, len(sequence))
+                        batch_inds = inds[start:end]
+                        inputs = [seq_obs[batch_inds], z_noise_vae[batch_inds]]
+                        total_errors, summary = train_vae(*inputs)
+                        tf_writer.add_summary(summary, global_step=info["steps"] + start)
+                elif args.train_latent:
                     # Sample a bunch of transitions from replay buffer
                     # EMDQN
 
                     update_counter += 1
                     seq_obs = np.array([np.array(seq[0]) for seq in sequence])
-                    if args.ib:
-                        seq_zs = [seq[1] for seq in sequence]
-                        qec_input = [np.max([ec_buffer[a].knn_value(z,args.knn) for a in range(env.action_space.n)]) for z in
-                                     seq_zs]
-                        qec_input = np.array(qec_input).reshape([-1])
+                    seq_zs = [seq[1] for seq in sequence]
+                    qec_input = [np.max([ec_buffer[a].knn_value(z, args.knn) for a in range(env.action_space.n)]) for z
+                                 in
+                                 seq_zs]
+                    qec_input = np.array(qec_input).reshape([-1])
                     # if update_counter % 2000 == 1999:
                     #     print("qec_mean:", np.mean(qecwatch))
                     #     print("qec_fount: %.2f" % (1.0 * qec_found / args.batch_size / update_counter))
@@ -318,13 +334,14 @@ if __name__ == '__main__':
                         inputs = [seq_obs[batch_inds], z_noise_vae[batch_inds]]
                         if args.ib:
                             inputs.append(qec_input[batch_inds])
-                        total_errors, summary = train(*inputs)
+                        total_errors, summary = train_ib(*inputs)
                         tf_writer.add_summary(summary, global_step=info["steps"] + start)
 
                     # tf_writer.add_summary(summary,global_step=info["steps"])
                 # Update target network.
                 # if num_iters % args.target_update_freq == 0:  # NOTE: why not 10000?
-            '''
+                update_kdtree()
+
             if start_time is not None:
                 steps_per_iter.update(info['steps'] - start_steps)
                 iteration_time_est.update(time.time() - start_time)
