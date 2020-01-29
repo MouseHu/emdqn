@@ -79,7 +79,8 @@ class LRU_KNN_MC(object):
         idxes = []
         while len(idxes) < batch_size:
             id = np.random.randint(0, self.curr_capacity)
-            if id not in idxes and self.hashs[id] not in avoids:
+
+            if (id not in idxes) and not (np.array([np.array_equal(self.hashs[id],x) for x in avoids]).any()):
                 idxes.append(id)
         return self.states[idxes]
 

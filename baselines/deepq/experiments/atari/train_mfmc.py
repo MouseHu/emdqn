@@ -49,6 +49,7 @@ def parse_args():
     parser.add_argument("--lr", type=float, default=1e-4, help="learning rate for Adam optimizer")
     parser.add_argument("--momentum", type=float, default=0.999, help="momentum for momentum contrastive encoder")
     parser.add_argument("--negative-samples", type=int, default=10, help="numbers for negative samples")
+    parser.add_argument("--knn", type=int, default=4, help="number of k nearest neighbours")
     parser.add_argument("--num-steps", type=int, default=int(1e7),
                         help="total number of steps to run the environment for")
     parser.add_argument("--batch-size", type=int, default=32,
@@ -72,7 +73,7 @@ def parse_args():
                         help="It present data will saved/loaded from Azure. Should be in format ACCOUNT_NAME:ACCOUNT_KEY:CONTAINER")
     parser.add_argument("--save-freq", type=int, default=1e6,
                         help="save model once every time this many iterations are completed")
-    parser.add_argument("--latent_dim", type=int, default=512,
+    parser.add_argument("--latent_dim", type=int, default=32,
                         help="latent_dim")
     parser.add_argument("--comment", type=str, default=datetime.datetime.now().strftime("%I-%M_%B-%d-%Y"),
                         help="discription for this experiment")
@@ -181,12 +182,12 @@ if __name__ == '__main__':
         # EMDQN
         ec_buffer = []
         buffer_size = 1000000
-        latent_dim = 4
+        latent_dim = args.latent_dim
         input_dim = 84 * 84 * 4
         rng = np.random.RandomState(123456)  # deterministic, erase 123456 for stochastic
         rp = rng.normal(loc=0, scale=1. / np.sqrt(latent_dim), size=(latent_dim, input_dim))
         for i in range(env.action_space.n):
-            ec_buffer.append(LRU_KNN_MC(buffer_size, latent_dim, 'game'))
+            ec_buffer.append(LRU_KNN_MC(buffer_size, latent_dim,latent_dim, 'game'))
         # rng = np.random.RandomState(123456)  # deterministic, erase 123456 for stochastic
         # rp = rng.normal(loc=0, scale=1. / np.sqrt(latent_dim), size=(latent_dim, input_dim))
         qecwatch = []
@@ -199,7 +200,7 @@ if __name__ == '__main__':
 
         def act(ob, stochastic=0, update_eps=-1):
             global eps
-            z = z_func(ob)
+            z = z_func(np.array(ob))
             if update_eps >= 0:
                 eps = update_eps
             if np.random.random() < max(stochastic, eps):
@@ -209,8 +210,10 @@ if __name__ == '__main__':
             else:
                 # print(eps,stochastic,np.random.rand(0, 1))
                 q = []
+                h = np.dot(rp, np.array(ob).flatten())
+                h = h.reshape((latent_dim))
                 for a in range(env.action_space.n):
-                    q.append(ec_buffer[a].act_value(z, args.knn))
+                    q.append(ec_buffer[a].act_value(z[0][0], h,args.knn))
                 # print("ec",eps,np.argmax(q),q)
                 return np.argmax(q), z
 
@@ -227,12 +230,13 @@ if __name__ == '__main__':
                 # z = np.dot(rp, s.flatten())
                 Rtd = r + 0.99 * Rtd
                 # z = z.reshape((latent_dim))
-                h = np.dot(rp, s.flatten())
+                h = np.dot(rp, np.array(s).flatten())
                 h = h.reshape((latent_dim))
                 qd = ec_buffer[a].peek(h, Rtd, True)
                 if qd == None:  # new action
-                    z = encoder_z_func(s)
-                    ec_buffer[a].add(z, h, Rtd)
+                    z = encoder_z_func(np.array(s)[None,:])
+                    #print(z[0][0],h)
+                    ec_buffer[a].add(z[0][0], h, Rtd)
 
 
         # Create training graph and replay buffer
@@ -315,7 +319,7 @@ if __name__ == '__main__':
                 sequence = []
                 obs = env.reset()
 
-            if (num_iters > max(5 * args.batch_size, args.replay_buffer_size // 20) and
+            if (num_iters > max(5 * args.batch_size, args.replay_buffer_size // 200) and
                     num_iters % args.learning_freq == 0):
                 # Sample a bunch of transitions from replay buffer
                 # if args.prioritized:
@@ -368,10 +372,10 @@ if __name__ == '__main__':
                             qecwatch = []
 
                 # Minimize the error in Bellman's equation and compute TD-error
-                if args.predict:
-                    inputs = [obses_anchor, obses_pos, neg_keys]
+                if not args.predict:
+                    inputs = [[1],obses_anchor, obses_pos, neg_keys]
                 else:
-                    inputs = [obses_anchor, obses_pos, neg_keys, obses_t, value_input]
+                    inputs = [[1],obses_anchor, obses_pos, neg_keys, obses_t, value_input]
                 total_errors, summary = train(*inputs)
 
                 # Update the priorities in the replay buffer

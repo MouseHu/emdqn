@@ -141,11 +141,11 @@ def build_train_mfmc(make_obs_ph, model_func, num_actions, optimizer, grad_norm_
         obs_mc_input_positive = U.ensure_tf_input(make_obs_ph("enc_obs_pos"))
         keys_mc_input_negative = tf.placeholder(tf.float32, [None, K, latent_dim], name='enc_keys_neg')
         # inputs = [obs_mc_input]
-        value_input = tf.placeholder(tf.float32, [None], name='qec')
+        value_input = tf.placeholder(tf.float32, [None,1], name='value')
         if predict:
-            inputs = [obs_mc_input_query, obs_mc_input_positive, keys_mc_input_negative, obs_mc_input, value_input]
+            inputs = [tau,obs_mc_input_query, obs_mc_input_positive, keys_mc_input_negative, obs_mc_input, value_input]
         else:
-            inputs = [obs_mc_input_query, obs_mc_input_positive, keys_mc_input_negative]
+            inputs = [tau,obs_mc_input_query, obs_mc_input_positive, keys_mc_input_negative]
         z_mc, _ = model_func(
             obs_mc_input_query.get(), num_actions,
             scope="model_func",
@@ -159,10 +159,10 @@ def build_train_mfmc(make_obs_ph, model_func, num_actions, optimizer, grad_norm_
             obs_mc_input_positive.get(), num_actions,
             scope="encoder_model_func", reuse=True)
 
-        z_mc_dot = z_mc.reshape([-1, 1, latent_dim])
+        z_mc_dot = tf.reshape(z_mc,[-1, 1, latent_dim])
         z_mc_dot = tf.tile(z_mc_dot, [1, K, 1])
-        negative = tf.reduce_sum(tf.exp(tf.tensordot(z_mc_dot, keys_mc_input_negative, dim=2) / tau), axis=1)
-        positive = tf.exp(tf.tensordot(z_mc, encoder_z_mc_pos, axis=1) / tau)
+        negative = tf.reduce_sum(tf.exp(tf.tensordot(z_mc_dot, keys_mc_input_negative, axes=2) / tau), axis=1)
+        positive = tf.exp(tf.tensordot(z_mc, encoder_z_mc_pos, axes=1) / tau)
         print("shape:", negative.shape, positive.shape)
         contrast_loss = tf.reduce_sum(tf.log(negative) - tf.log(positive))
         prediction_loss = tf.losses.mean_squared_error(value_input, v_mc)
@@ -186,6 +186,7 @@ def build_train_mfmc(make_obs_ph, model_func, num_actions, optimizer, grad_norm_
                                    sorted(encoder_model_func_vars, key=lambda v: v.name)):
             update_target_expr.append(var_target.assign((1 - momentum) * var + momentum * var_target))
         update_target_expr = tf.group(*update_target_expr)
+        update_target = U.function([], [], updates=[update_target_expr])
         # EMDQN
 
         contrast_loss_summary = tf.summary.scalar("contrast loss", tf.reduce_mean(contrast_loss))
@@ -204,4 +205,4 @@ def build_train_mfmc(make_obs_ph, model_func, num_actions, optimizer, grad_norm_
             updates=[optimize_expr_contrast_with_prediction]
         )
 
-        return z_func, encoder_z_func, update_target_expr, train
+        return z_func, encoder_z_func, update_target, train
