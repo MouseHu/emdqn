@@ -261,7 +261,7 @@ if __name__ == '__main__':
             for i in range(30):
                 tobs = tenv.reset()
                 while True:
-                    action = act(np.array(tobs)[None], stochastic=0.05)
+                    action,z_test = act(np.array(tobs)[None], stochastic=0.05)
                     tobs, rew, done, info = tenv.step(action)
                     print(info)
                     if done and len(info["rewards"]) > 0:
@@ -438,7 +438,7 @@ if __name__ == '__main__':
                 logger.log()
             tf_writer.add_summary(value_summary, global_step=info["steps"])
 
-            if num_iters % 1000000 == 999999:
+            if num_iters % 1000000 == 1:
                 avg_score = test_agent()
-                tfout.write("%.2f\n" % avg_score)
+                tfout.write("test:%.2f\n" % avg_score)
                 tfout.flush()
