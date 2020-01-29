@@ -85,6 +85,7 @@ def parse_args():
     # EMDQN
 
     boolean_flag(parser, "predict", default=False, help="whether or not to use prediction")
+    boolean_flag(parser, "learning", default=False, help="whether or not to learn encoder")
 
     return parser.parse_args()
 
@@ -320,7 +321,7 @@ if __name__ == '__main__':
                 obs = env.reset()
 
             if (num_iters > max(5 * args.batch_size, args.replay_buffer_size // 200) and
-                    num_iters % args.learning_freq == 0):
+                    num_iters % args.learning_freq == 0) and args.learning:
                 # Sample a bunch of transitions from replay buffer
                 # if args.prioritized:
                 #     experience_contra = replay_buffer.sample(args.batch_size, beta=beta_schedule.value(num_iters))
@@ -376,6 +377,7 @@ if __name__ == '__main__':
                     inputs = [[1],obses_anchor, obses_pos, neg_keys]
                 else:
                     inputs = [[1],obses_anchor, obses_pos, neg_keys, obses_t, value_input]
+
                 total_errors, summary = train(*inputs)
 
                 # Update the priorities in the replay buffer
