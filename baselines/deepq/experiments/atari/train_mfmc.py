@@ -248,7 +248,6 @@ if __name__ == '__main__':
             optimizer=tf.train.AdamOptimizer(learning_rate=args.lr, epsilon=1e-4),
             gamma=0.99,
             grad_norm_clipping=10,
-            momentum=0.999,
             K=args.negative_samples,
             predict=predict
         )
@@ -289,7 +288,7 @@ if __name__ == '__main__':
             replay_buffer = ReplayBuffer(args.replay_buffer_size)
 
         U.initialize()
-        update_encoder()
+        update_encoder([0])
         num_iters = 0
 
         # Load the model
@@ -312,7 +311,8 @@ if __name__ == '__main__':
             # EMDQN
 
             sequence.append([obs, action, np.clip(rew, -1, 1)])
-            replay_buffer.add(obs, action, rew, new_obs, float(done))
+            if args.learning:
+                replay_buffer.add(obs, action, rew, new_obs, float(done))
             obs = new_obs
             if done:
                 # EMDQN
@@ -390,7 +390,7 @@ if __name__ == '__main__':
                 # tf_writer.add_summary(summary,global_step=info["steps"])
             # Update target network.
             # if num_iters % args.target_update_freq == 0:  # NOTE: why not 10000?
-                update_encoder()
+                update_encoder([args.momentum])
             if num_iters % args.target_update_freq == 0:
                 update_kdtree()
 

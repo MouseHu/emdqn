@@ -87,7 +87,7 @@ def build_act_mfmc(make_obs_ph, model_func, num_actions, scope="deepq", secondar
 
 
 def build_train_mfmc(make_obs_ph, model_func, num_actions, optimizer, grad_norm_clipping=None, gamma=1.0, scope="mfec",
-                     latent_dim=32, K=10, beta=0.1, predict=True, momentum=0.999, reuse=None):
+                     latent_dim=32, K=10, beta=0.1, predict=True, reuse=None):
     """Creates the train function:
 
     Parameters
@@ -136,6 +136,7 @@ def build_train_mfmc(make_obs_ph, model_func, num_actions, optimizer, grad_norm_
 
         # EMDQN
         tau = tf.placeholder(tf.float32, [1], name='tau')
+        momentum = tf.placeholder(tf.float32, [1], name='momentum')
         obs_mc_input = U.ensure_tf_input(make_obs_ph("obs"))
         obs_mc_input_query = U.ensure_tf_input(make_obs_ph("obs_query"))
         obs_mc_input_positive = U.ensure_tf_input(make_obs_ph("enc_obs_pos"))
@@ -186,7 +187,7 @@ def build_train_mfmc(make_obs_ph, model_func, num_actions, optimizer, grad_norm_
                                    sorted(encoder_model_func_vars, key=lambda v: v.name)):
             update_target_expr.append(var_target.assign((1 - momentum) * var + momentum * var_target))
         update_target_expr = tf.group(*update_target_expr)
-        update_target = U.function([], [], updates=[update_target_expr])
+        update_target = U.function([momentum], [], updates=[update_target_expr])
         # EMDQN
 
         contrast_loss_summary = tf.summary.scalar("contrast loss", tf.reduce_mean(contrast_loss))
