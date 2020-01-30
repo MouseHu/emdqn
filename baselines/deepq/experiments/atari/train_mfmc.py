@@ -208,7 +208,7 @@ if __name__ == '__main__':
             if np.random.random() < max(stochastic, eps):
                 action = np.random.randint(0, env.action_space.n)
                 # print(eps,env.action_space.n,action)
-                return action, z
+                return action, z, h
             else:
                 # print(eps,stochastic,np.random.rand(0, 1))
                 q = []
@@ -231,13 +231,14 @@ if __name__ == '__main__':
                 Rtd = r + 0.99 * Rtd
                 Rtds.append(Rtd)
             Rtds = reversed(Rtds)
-            hashes = hash_func(np.array(obses))
-            zs = encoder_z_func(np.array(obses))
+            obses = np.array([np.array(ob) for ob in obses])
+            hashes = hash_func(obses)
+            zs = encoder_z_func(obses)
             for a, z, hash, Rtd in zip(acts, zs, hashes, Rtds):
-                qd = ec_buffer[a].peek(h[0], Rtd, True)
+                qd = ec_buffer[a].peek(h[0][0], Rtd, True)
                 if qd == None:  # new action
-                    # print(z[0][0],h)
-                    ec_buffer[a].add(z[0], h[0], Rtd)
+                    #print(z[0],h[0][0])
+                    ec_buffer[a].add(z[0], h[0][0], Rtd)
 
 
         # Create training graph and replay buffer
@@ -309,7 +310,7 @@ if __name__ == '__main__':
             # Take action and store transition in the replay buffer.
             action, z, h = act(np.array(obs)[None], update_eps=exploration.value(num_iters))
             new_obs, rew, done, info = env.step(action)
-            new_h = hash_func(new_obs)
+            new_h = hash_func(np.array(new_obs)[None,:])
             # EMDQN
 
             sequence.append([obs, action, np.clip(rew, -1, 1)])
