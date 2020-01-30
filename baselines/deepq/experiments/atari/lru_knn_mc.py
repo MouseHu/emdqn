@@ -91,12 +91,12 @@ class LRU_KNN_MC(object):
         else:
             return self.knn_value(key, knn=knn)
 
-    def knn_value(self, key, knn, update=True):
+    def knn_value(self, hash, knn, update=True):
         knn = min(self.curr_capacity, knn)
         if self.curr_capacity == 0 or self.build_tree == False:
             return 0.0, 0.0
 
-        dist, ind = self.tree.query([key], k=knn)
+        dist, ind = self.hash_tree.query([hash], k=knn)
 
         value = 0.0
         value_decay = 0.0
