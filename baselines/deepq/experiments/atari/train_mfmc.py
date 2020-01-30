@@ -213,7 +213,7 @@ if __name__ == '__main__':
                 # print(eps,stochastic,np.random.rand(0, 1))
                 q = []
                 for a in range(env.action_space.n):
-                    q.append(ec_buffer[a].act_value(z[0][0], h[0][0], args.knn))
+                    q.append(ec_buffer[a].act_value(z[0], h[0][0], args.knn))
                 # print("ec",eps,np.argmax(q),q)
                 return np.argmax(q), z, h
 
