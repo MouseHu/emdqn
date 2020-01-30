@@ -13,7 +13,7 @@ class LRU_KNN_MC(object):
         self.env_name = env_name
         self.capacity = capacity
         self.states = np.empty((capacity, z_dim), dtype=np.float32)  # learned keys
-        self.hashs = np.empty((capacity, hash_dim), dtype=np.float32)  # fixed keys
+        self.hashes = np.empty((capacity, hash_dim), dtype=np.float32)  # fixed keys
         self.q_values_decay = np.zeros(capacity)
         self.lru = np.zeros(capacity)
         self.curr_capacity = 0
@@ -62,7 +62,7 @@ class LRU_KNN_MC(object):
 
         # if self.states[ind] == key:
         # if np.allclose(self.states[ind], key):
-        if np.allclose(self.states[ind], hash, atol=1e-08):
+        if np.allclose(self.hashes[ind], hash, atol=1e-08):
             self.lru[ind] = self.tm
             self.tm += 0.01
             if modify:
@@ -80,7 +80,7 @@ class LRU_KNN_MC(object):
         while len(idxes) < batch_size:
             id = np.random.randint(0, self.curr_capacity)
 
-            if (id not in idxes) and not (np.array([np.array_equal(self.hashs[id],x) for x in avoids]).any()):
+            if (id not in idxes) and not (np.array([np.array_equal(self.hashes[id],x) for x in avoids]).any()):
                 idxes.append(id)
         return self.states[idxes]
 
@@ -91,12 +91,12 @@ class LRU_KNN_MC(object):
         else:
             return self.knn_value(key, knn=knn)
 
-    def knn_value(self, hash, knn, update=True):
+    def knn_value(self, key, knn, update=True):
         knn = min(self.curr_capacity, knn)
         if self.curr_capacity == 0 or self.build_tree == False:
             return 0.0, 0.0
 
-        dist, ind = self.hash_tree.query([hash], k=knn)
+        dist, ind = self.tree.query([key], k=knn)
 
         value = 0.0
         value_decay = 0.0
@@ -115,12 +115,12 @@ class LRU_KNN_MC(object):
             # find the LRU entry
             old_index = np.argmin(self.lru)
             self.states[old_index] = key
-            self.hashs[old_index] = hash
+            self.hashes[old_index] = hash
             self.q_values_decay[old_index] = value_decay
             self.lru[old_index] = self.tm
         else:
             self.states[self.curr_capacity] = key
-            self.hashs[self.curr_capacity] = hash
+            self.hashes[self.curr_capacity] = hash
             self.q_values_decay[self.curr_capacity] = value_decay
             self.lru[self.curr_capacity] = self.tm
             self.curr_capacity += 1
@@ -147,7 +147,7 @@ class LRU_KNN_MC(object):
             del self.hash_tree
         # print(self.curr_capacity)
         self.tree = KDTree(self.states[:self.curr_capacity])
-        self.hash_tree = KDTree(self.hashs[:self.curr_capacity])
+        self.hash_tree = KDTree(self.hashes[:self.curr_capacity])
         self.build_tree = True
         self.build_tree_times += 1
         if self.build_tree_times == 50:
