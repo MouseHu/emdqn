@@ -20,7 +20,7 @@ import baselines.common.tf_util as U
 import datetime
 from baselines import logger
 from baselines import deepq
-from baselines.deepq.replay_buffer import ReplayBuffer, PrioritizedReplayBuffer
+from baselines.deepq.replay_buffer import ReplayBufferHash, PrioritizedReplayBuffer
 from baselines.common.misc_util import (
     boolean_flag,
     pickle_load,
@@ -146,11 +146,10 @@ def switch_first_half(obs, obs_next, batch_size):
 
 
 if __name__ == '__main__':
+
     args = parse_args()
-
-    predict = args.predict
-    print("predict value:{}".format(predict))
-
+    print("predict value:{} learning:{}".format(args.predict, args.learning))
+    tf.random.set_random_seed(args.seed)
     # Parse savedir and azure container.
     savedir = args.save_dir
     if args.save_azure_container is not None:
@@ -185,10 +184,10 @@ if __name__ == '__main__':
         buffer_size = 1000000
         latent_dim = args.latent_dim
         input_dim = 84 * 84 * 4
-        rng = np.random.RandomState(123456)  # deterministic, erase 123456 for stochastic
-        rp = rng.normal(loc=0, scale=1. / np.sqrt(latent_dim), size=(latent_dim, input_dim))
+        # rng = np.random.RandomState(123456)  # deterministic, erase 123456 for stochastic
+        # rp = rng.normal(loc=0, scale=1. / np.sqrt(latent_dim), size=(latent_dim, input_dim))
         for i in range(env.action_space.n):
-            ec_buffer.append(LRU_KNN_MC(buffer_size, latent_dim,latent_dim, 'game'))
+            ec_buffer.append(LRU_KNN_MC(buffer_size, latent_dim, latent_dim, 'game'))
         # rng = np.random.RandomState(123456)  # deterministic, erase 123456 for stochastic
         # rp = rng.normal(loc=0, scale=1. / np.sqrt(latent_dim), size=(latent_dim, input_dim))
         qecwatch = []
@@ -196,12 +195,14 @@ if __name__ == '__main__':
         qec_found = 0
         sequence = []
         tfout = open(
-            './results/result_%s_mfmc_predict%s_%s' % (args.env, str(predict), args.comment), 'w+')
+            './results/result_%s_mfmc_predict%s_%s' % (args.env, str(args.predict), args.comment), 'w+')
+        visualout = './visual/'
 
 
         def act(ob, stochastic=0, update_eps=-1):
             global eps
             z = z_func(np.array(ob))
+            h = hash_func(np.array(ob))
             if update_eps >= 0:
                 eps = update_eps
             if np.random.random() < max(stochastic, eps):
@@ -211,12 +212,10 @@ if __name__ == '__main__':
             else:
                 # print(eps,stochastic,np.random.rand(0, 1))
                 q = []
-                h = np.dot(rp, np.array(ob).flatten())
-                h = h.reshape((latent_dim))
                 for a in range(env.action_space.n):
-                    q.append(ec_buffer[a].act_value(z[0][0], h,args.knn))
+                    q.append(ec_buffer[a].act_value(z[0][0], h[0][0], args.knn))
                 # print("ec",eps,np.argmax(q),q)
-                return np.argmax(q), z
+                return np.argmax(q), z, h
 
 
         def update_kdtree():
@@ -225,31 +224,33 @@ if __name__ == '__main__':
 
 
         def update_ec(sequence):
-            Rtd = 0.
-            for seq in reversed(sequence):
-                s, a, r = seq
-                # z = np.dot(rp, s.flatten())
+            obses, acts, rs = list(zip(*sequence))
+            Rtds = []
+            Rtd = 0
+            for r in reversed(rs):
                 Rtd = r + 0.99 * Rtd
-                # z = z.reshape((latent_dim))
-                h = np.dot(rp, np.array(s).flatten())
-                h = h.reshape((latent_dim))
-                qd = ec_buffer[a].peek(h, Rtd, True)
+                Rtds.append(Rtd)
+            Rtds = reversed(Rtds)
+            hashes = hash_func(np.array(obses))
+            zs = encoder_z_func(np.array(obses))
+            for a, z, hash, Rtd in zip(acts, zs, hashes, Rtds):
+                qd = ec_buffer[a].peek(h[0], Rtd, True)
                 if qd == None:  # new action
-                    z = encoder_z_func(np.array(s)[None,:])
-                    #print(z[0][0],h)
-                    ec_buffer[a].add(z[0][0], h, Rtd)
+                    # print(z[0][0],h)
+                    ec_buffer[a].add(z[0], h[0], Rtd)
 
 
         # Create training graph and replay buffer
-        z_func, encoder_z_func, update_encoder, train = deepq.build_train_mfmc(
+        hash_func, z_func, encoder_z_func, update_encoder, train = deepq.build_train_mfmc(
             make_obs_ph=lambda name: U.Uint8Input(env.observation_space.shape, name=name),
             model_func=contrastive_model,
             num_actions=env.action_space.n,
             optimizer=tf.train.AdamOptimizer(learning_rate=args.lr, epsilon=1e-4),
             gamma=0.99,
             grad_norm_clipping=10,
+            input_dim=84 * 84 * 4,
             K=args.negative_samples,
-            predict=predict
+            predict=args.predict
         )
 
 
@@ -260,7 +261,7 @@ if __name__ == '__main__':
             for i in range(30):
                 tobs = tenv.reset()
                 while True:
-                    action,z_test = act(np.array(tobs)[None], stochastic=0.05)
+                    action, z_test, h_test = act(np.array(tobs)[None], stochastic=0.05)
                     tobs, rew, done, info = tenv.step(action)
                     print(info)
                     if done and len(info["rewards"]) > 0:
@@ -285,7 +286,7 @@ if __name__ == '__main__':
             replay_buffer = PrioritizedReplayBuffer(args.replay_buffer_size, args.prioritized_alpha)
             beta_schedule = LinearSchedule(approximate_num_iters, initial_p=args.prioritized_beta0, final_p=1.0)
         else:
-            replay_buffer = ReplayBuffer(args.replay_buffer_size)
+            replay_buffer = ReplayBufferHash(args.replay_buffer_size)
 
         U.initialize()
         update_encoder([0])
@@ -306,13 +307,14 @@ if __name__ == '__main__':
         while True:
             num_iters += 1
             # Take action and store transition in the replay buffer.
-            action, z = act(np.array(obs)[None], update_eps=exploration.value(num_iters))
+            action, z, h = act(np.array(obs)[None], update_eps=exploration.value(num_iters))
             new_obs, rew, done, info = env.step(action)
+            new_h = hash_func(new_obs)
             # EMDQN
 
             sequence.append([obs, action, np.clip(rew, -1, 1)])
             if args.learning:
-                replay_buffer.add(obs, action, rew, new_obs, float(done))
+                replay_buffer.add(obs, h, action, rew, new_obs, new_h, float(done))
             obs = new_obs
             if done:
                 # EMDQN
@@ -321,7 +323,7 @@ if __name__ == '__main__':
                 obs = env.reset()
 
             if (num_iters > max(5 * args.batch_size, args.replay_buffer_size // 200) and
-                    num_iters % args.learning_freq == 0) and args.learning:
+                num_iters % args.learning_freq == 0) and args.learning:
                 # Sample a bunch of transitions from replay buffer
                 # if args.prioritized:
                 #     experience_contra = replay_buffer.sample(args.batch_size, beta=beta_schedule.value(num_iters))
@@ -334,26 +336,25 @@ if __name__ == '__main__':
                 #
                 # else:
                 if args.predict:
-                    obses_t, actions, rewards, obses_tp1, dones = replay_buffer.sample(args.batch_size)
-                obses_contra, actions_contra, rewards_contra, obses_contra_tp1, dones_contra = replay_buffer.sample(
+                    obses_t, hashes_t, actions, rewards, obses_tp1, hashes_tp1, dones = replay_buffer.sample(
+                        args.batch_size)
+                obses_contra, hashes_contra, actions_contra, rewards_contra, obses_contra_tp1, hashes_contra_tp1, dones_contra = replay_buffer.sample(
                     args.batch_size)
                 # obses_anchor, obses_pos = switch_first_half(obses_contra, obses_contra_tp1, args.batch_size)
+                # hashes_anchor, hashes_pos = switch_first_half(hashes_contra, hashes_contra_tp1, args.batch_size)
                 obses_anchor, obses_pos = obses_contra, obses_contra_tp1
+                hashes_anchor, hashes_pos = hashes_contra, hashes_contra_tp1
                 # EMDQN
-                hashs_anchor = [np.dot(rp, obses_anchor[i].flatten()).reshape((latent_dim)) for i in
-                                range(args.batch_size)]
-                hashs_pos = [np.dot(rp, obses_pos[i].flatten()).reshape((latent_dim)) for i in range(args.batch_size)]
                 neg_keys = [
-                    ec_buffer[actions_contra[i]].sample_keys([hashs_anchor[i], hashs_pos[i]], args.negative_samples) for
+                    ec_buffer[actions_contra[i]].sample_keys([hashes_anchor[i], hashes_pos[i]], args.negative_samples)
+                    for
                     i in range(args.batch_size)]
                 update_counter += 1
                 if args.predict:
                     value_input = np.zeros(args.batch_size)
+                    hs = hash_func(obses_t)
                     for i in range(args.batch_size):
-                        h = np.dot(rp, obses_t[i].flatten())
-                        #     # print(z.shape)
-                        h = h.reshape((latent_dim))
-                        q = ec_buffer[actions[i]].peek(h, None, modify=False)
+                        q = ec_buffer[actions[i]].peek(hs[i][0], None, modify=False)
                         if q != None:
                             value_input[i] = q
                             qecwatch.append(q)
@@ -374,9 +375,9 @@ if __name__ == '__main__':
 
                 # Minimize the error in Bellman's equation and compute TD-error
                 if not args.predict:
-                    inputs = [[1],obses_anchor, obses_pos, neg_keys]
+                    inputs = [[1], obses_anchor, obses_pos, neg_keys]
                 else:
-                    inputs = [[1],obses_anchor, obses_pos, neg_keys, obses_t, value_input]
+                    inputs = [[1], obses_anchor, obses_pos, neg_keys, obses_t, value_input]
 
                 total_errors, summary = train(*inputs)
 
@@ -388,11 +389,14 @@ if __name__ == '__main__':
                 tf_writer.add_summary(summary, global_step=info["steps"])
 
                 # tf_writer.add_summary(summary,global_step=info["steps"])
-            # Update target network.
-            # if num_iters % args.target_update_freq == 0:  # NOTE: why not 10000?
+                # Update target network.
+                # if num_iters % args.target_update_freq == 0:  # NOTE: why not 10000?
                 update_encoder([args.momentum])
             if num_iters % args.target_update_freq == 0:
                 update_kdtree()
+            if num_iters == 100:
+                pass
+            # sample input to visualize
 
             if start_time is not None:
                 steps_per_iter.update(info['steps'] - start_steps)

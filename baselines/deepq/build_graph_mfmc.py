@@ -87,7 +87,7 @@ def build_act_mfmc(make_obs_ph, model_func, num_actions, scope="deepq", secondar
 
 
 def build_train_mfmc(make_obs_ph, model_func, num_actions, optimizer, grad_norm_clipping=None, gamma=1.0, scope="mfec",
-                     latent_dim=32, K=10, beta=0.1, predict=True, reuse=None):
+                     latent_dim=32, input_dim=84 * 84 * 4, hash_dim=32, K=10, beta=0.1, predict=True, reuse=None):
     """Creates the train function:
 
     Parameters
@@ -137,16 +137,19 @@ def build_train_mfmc(make_obs_ph, model_func, num_actions, optimizer, grad_norm_
         # EMDQN
         tau = tf.placeholder(tf.float32, [1], name='tau')
         momentum = tf.placeholder(tf.float32, [1], name='momentum')
+
+        obs_hash_input = U.ensure_tf_input(make_obs_ph("obs_hash"))
         obs_mc_input = U.ensure_tf_input(make_obs_ph("obs"))
         obs_mc_input_query = U.ensure_tf_input(make_obs_ph("obs_query"))
         obs_mc_input_positive = U.ensure_tf_input(make_obs_ph("enc_obs_pos"))
         keys_mc_input_negative = tf.placeholder(tf.float32, [None, K, latent_dim], name='enc_keys_neg')
+
         # inputs = [obs_mc_input]
-        value_input = tf.placeholder(tf.float32, [None,1], name='value')
+        value_input = tf.placeholder(tf.float32, [None, 1], name='value')
         if predict:
-            inputs = [tau,obs_mc_input_query, obs_mc_input_positive, keys_mc_input_negative, obs_mc_input, value_input]
+            inputs = [tau, obs_mc_input_query, obs_mc_input_positive, keys_mc_input_negative, obs_mc_input, value_input]
         else:
-            inputs = [tau,obs_mc_input_query, obs_mc_input_positive, keys_mc_input_negative]
+            inputs = [tau, obs_mc_input_query, obs_mc_input_positive, keys_mc_input_negative]
         z_mc, _ = model_func(
             obs_mc_input_query.get(), num_actions,
             scope="model_func",
@@ -160,7 +163,7 @@ def build_train_mfmc(make_obs_ph, model_func, num_actions, optimizer, grad_norm_
             obs_mc_input_positive.get(), num_actions,
             scope="encoder_model_func", reuse=True)
 
-        z_mc_dot = tf.reshape(z_mc,[-1, 1, latent_dim])
+        z_mc_dot = tf.reshape(z_mc, [-1, 1, latent_dim])
         z_mc_dot = tf.tile(z_mc_dot, [1, K, 1])
         negative = tf.reduce_sum(tf.exp(tf.tensordot(z_mc_dot, keys_mc_input_negative, axes=2) / tau), axis=1)
         positive = tf.exp(tf.tensordot(z_mc, encoder_z_mc_pos, axes=1) / tau)
@@ -188,6 +191,14 @@ def build_train_mfmc(make_obs_ph, model_func, num_actions, optimizer, grad_norm_
             update_target_expr.append(var_target.assign((1 - momentum) * var + momentum * var_target))
         update_target_expr = tf.group(*update_target_expr)
         update_target = U.function([momentum], [], updates=[update_target_expr])
+
+        latten_obs = tf.reshape(obs_hash_input, [None, input_dim])
+        rp = tf.random.normal([input_dim, hash_dim])
+        obs_hash_output = rp * latten_obs
+        hash_func = U.function(
+            inputs=[obs_hash_input],
+            outputs=[obs_hash_output]
+        )
         # EMDQN
 
         contrast_loss_summary = tf.summary.scalar("contrast loss", tf.reduce_mean(contrast_loss))
@@ -206,4 +217,4 @@ def build_train_mfmc(make_obs_ph, model_func, num_actions, optimizer, grad_norm_
             updates=[optimize_expr_contrast_with_prediction]
         )
 
-        return z_func, encoder_z_func, update_target, train
+        return hash_func, z_func, encoder_z_func, update_target, train
