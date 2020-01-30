@@ -192,8 +192,8 @@ def build_train_mfmc(make_obs_ph, model_func, num_actions, optimizer, grad_norm_
         update_target_expr = tf.group(*update_target_expr)
         update_target = U.function([momentum], [], updates=[update_target_expr])
 
-        latten_obs = tf.reshape(obs_hash_input, [None, input_dim])
-        rp = tf.random.normal([input_dim, hash_dim])
+        latten_obs = tf.reshape(obs_hash_input.get(), [None, input_dim])
+        rp = tf.random.normal([input_dim, hash_dim], 0, 1 / np.sqrt(hash_dim))
         obs_hash_output = rp * latten_obs
         hash_func = U.function(
             inputs=[obs_hash_input],
