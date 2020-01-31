@@ -49,7 +49,7 @@ def parse_args():
     parser.add_argument("--lr", type=float, default=1e-4, help="learning rate for Adam optimizer")
     parser.add_argument("--num-steps", type=int, default=int(1e7),
                         help="total number of steps to run the environment for")
-    parser.add_argument("--batch-size", type=int, default=32, help="number of transitions to optimize at the same time")
+    parser.add_argument("--batch-size", type=int, default=128, help="number of transitions to optimize at the same time")
     parser.add_argument("--learning-freq", type=int, default=4,
                         help="number of iterations between every optimization step")
     parser.add_argument("--target-update-freq", type=int, default=40000,
@@ -75,7 +75,7 @@ def parse_args():
 
     # EMDQN
     boolean_flag(parser, "train-latent", default=False, help="whether or not to further train latent")
-
+    boolean_flag(parser, "vae", default=False, help="whether or not to further train vae")
     return parser.parse_args()
 
 
@@ -238,7 +238,7 @@ if __name__ == '__main__':
                 tobs = tenv.reset()
                 while True:
                     action, z = \
-                        act(np.array(tobs)[None], stochastic=0.05, act_noise=np.random.randn((1, args.latent_dim)))[0]
+                        act(np.array(tobs)[None], stochastic=0.05, act_noise=np.random.randn(1, args.latent_dim))[0]
                     tobs, rew, done, info = tenv.step(action)
                     print(info)
                     if done and len(info["rewards"]) > 0:
@@ -298,12 +298,10 @@ if __name__ == '__main__':
                     z_noise_vae = np.random.randn(len(sequence), args.latent_dim)
                     inds = np.arange(len(sequence))
                     np.random.shuffle(inds)
-                    for start in range(0, args.batchsize, len(sequence)):
-                        end = min(start + args.batch, len(sequence))
+                    for start in range(0, args.batch_size, len(sequence)):
+                        end = min(start + args.batch_size, len(sequence))
                         batch_inds = inds[start:end]
                         inputs = [seq_obs[batch_inds], z_noise_vae[batch_inds]]
-                        if args.ib:
-                            inputs.append(qec_input[batch_inds])
                         total_errors, summary = train_vae(*inputs)
                         tf_writer.add_summary(summary, global_step=info["steps"] + start)
                 elif args.train_latent:
@@ -313,7 +311,7 @@ if __name__ == '__main__':
                     update_counter += 1
                     seq_obs = np.array([np.array(seq[0]) for seq in sequence])
                     seq_zs = [seq[1] for seq in sequence]
-                    qec_input = [np.max([ec_buffer[a].knn_value(z) for a in range(env.action_space.n)]) for z in
+                    qec_input = [np.max([ec_buffer[a].knn_value(z,args.knn) for a in range(env.action_space.n)]) for z in
                                  seq_zs]
                     qec_input = np.array(qec_input).reshape([-1])
                     # if update_counter % 2000 == 1999:
@@ -329,12 +327,11 @@ if __name__ == '__main__':
                     z_noise_vae = np.random.randn(len(sequence), args.latent_dim)
                     inds = np.arange(len(sequence))
                     np.random.shuffle(inds)
-                    for start in range(0, args.batchsize, len(sequence)):
-                        end = min(start + args.batch, len(sequence))
+                    for start in range(0, args.batch_size, len(sequence)):
+                        end = min(start + args.batch_size, len(sequence))
                         batch_inds = inds[start:end]
                         inputs = [seq_obs[batch_inds], z_noise_vae[batch_inds]]
-                        if args.ib:
-                            inputs.append(qec_input[batch_inds])
+                        inputs.append(qec_input[batch_inds])
                         total_errors, summary = train_ib(*inputs)
                         tf_writer.add_summary(summary, global_step=info["steps"] + start)
 
