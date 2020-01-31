@@ -25,10 +25,12 @@ def ib_model(img_in, noise, num_actions, scope, reuse=False, decoder="DECONV"):
         z = z_mean + noise * tf.exp(0.5 * z_logvar)
 
         with tf.variable_scope("action_value"):
-            q_h = layers.fully_connected(z, num_outputs=128, activation_fn=tf.nn.relu, scope="q_h_1", reuse=tf.AUTO_REUSE)
+            q_h = layers.fully_connected(z, num_outputs=128, activation_fn=tf.nn.relu, scope="q_h_1",
+                                         reuse=tf.AUTO_REUSE)
             q_h_deterministic = layers.fully_connected(z_mean, num_outputs=128, activation_fn=tf.nn.relu, scope="q_h_1",
                                                        reuse=True)
-            q_func = layers.fully_connected(q_h, num_outputs=num_actions, activation_fn=None, scope="q_h_2", reuse=tf.AUTO_REUSE)
+            q_func = layers.fully_connected(q_h, num_outputs=num_actions, activation_fn=None, scope="q_h_2",
+                                            reuse=tf.AUTO_REUSE)
             q_func_deterministic = layers.fully_connected(q_h_deterministic, num_outputs=num_actions,
                                                           activation_fn=None, scope="q_h_2", reuse=True)
         with tf.variable_scope("state_value"):
@@ -60,6 +62,30 @@ def ib_model(img_in, noise, num_actions, scope, reuse=False, decoder="DECONV"):
                 print("Unrecognized decoder type.")
                 raise NotImplementedError
         return q_func, q_func_deterministic, v_mean, v_logvar, z_mean, z_logvar, reconstruct
+
+
+def contrastive_model(img_in, num_actions, scope, reuse=False):
+    """As described in https://storage.googleapis.com/deepmind-data/assets/papers/DeepMindNature14236Paper.pdf"""
+    img_size = img_in.shape[1]
+    with tf.variable_scope(scope, reuse=reuse):
+        out = img_in
+        # coordinate = np.meshgrid()
+        coordinate = tf.meshgrid(np.linspace(-1, 1, img_size),
+                                 np.linspace(-1, 1, img_size))  # .to(torch.device("cuda"))
+
+        with tf.variable_scope("convnet"):
+            # original architecture
+            out = layers.convolution2d(out, num_outputs=32, kernel_size=8, stride=4, activation_fn=tf.nn.relu)
+            out = layers.convolution2d(out, num_outputs=64, kernel_size=4, stride=2, activation_fn=tf.nn.relu)
+            out = layers.convolution2d(out, num_outputs=64, kernel_size=3, stride=1, activation_fn=tf.nn.relu)
+        out = layers.flatten(out)
+
+        z = layers.fully_connected(out, num_outputs=32, activation_fn=tf.nn.relu)
+
+        with tf.variable_scope("action_value"):
+            v_h = layers.fully_connected(z, num_outputs=512, activation_fn=tf.nn.relu)
+            v = layers.fully_connected(v_h, num_outputs=1, activation_fn=None)
+        return z, v
 
 
 def dueling_model(img_in, num_actions, scope, reuse=False):

@@ -219,7 +219,7 @@ if __name__ == '__main__':
 
 
         # Create training graph and replay buffer
-        z_func,train_vae,train_ib = deepq.build_train_mfvae(
+        z_func, train_vae, train_ib = deepq.build_train_mfvae(
             make_obs_ph=lambda name: U.Uint8Input(env.observation_space.shape, name=name),
             q_func=ib_model,
             num_actions=env.action_space.n,
@@ -291,7 +291,7 @@ if __name__ == '__main__':
                 update_ec(sequence)
                 obs = env.reset()
 
-                if num_iters <args.begin_training:
+                if num_iters < args.begin_training:
                     # train vae
                     update_counter += 1
                     seq_obs = np.array([np.array(seq[0]) for seq in sequence])
