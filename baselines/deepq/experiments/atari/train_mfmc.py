@@ -203,6 +203,7 @@ if __name__ == '__main__':
             global eps
             z = z_func(np.array(ob))
             h = hash_func(np.array(ob))
+            #print(z[0].shape,h[0].shape)
             if update_eps >= 0:
                 eps = update_eps
             if np.random.random() < max(stochastic, eps):
@@ -213,7 +214,7 @@ if __name__ == '__main__':
                 # print(eps,stochastic,np.random.rand(0, 1))
                 q = []
                 for a in range(env.action_space.n):
-                    q.append(ec_buffer[a].act_value(z[0], h[0][0], args.knn))
+                    q.append(ec_buffer[a].act_value(z[0][0], h[0][0], args.knn))
                 # print("ec",eps,np.argmax(q),q)
                 return np.argmax(q), z, h
 
@@ -323,7 +324,7 @@ if __name__ == '__main__':
                 sequence = []
                 obs = env.reset()
 
-            if (num_iters > max(5 * args.batch_size, args.replay_buffer_size // 200) and
+            if (num_iters > max(5 * args.batch_size, args.replay_buffer_size // 20) and
                 num_iters % args.learning_freq == 0) and args.learning:
                 # Sample a bunch of transitions from replay buffer
                 # if args.prioritized:
