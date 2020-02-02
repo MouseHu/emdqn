@@ -166,9 +166,10 @@ def build_train_mfmc(make_obs_ph, model_func, num_actions, optimizer, grad_norm_
         z_mc_expand = tf.reshape(z_mc, [-1, 1, latent_dim])
         z_mc_tile = tf.tile(z_mc_expand, [1, K, 1])
         negative = tf.reduce_sum(tf.exp(tf.tensordot(z_mc_tile, keys_mc_input_negative, axes=2) / tau), axis=1)
-        positive = tf.exp(tf.tensordot(z_mc, encoder_z_mc_pos, axes=2) / tau)
-        print("shape:", z_mc.shape, negative.shape, positive.shape)
-        contrast_loss = tf.reduce_sum(tf.log(negative) - tf.log(positive))
+        positive = tf.reduce_sum(z_mc*encoder_z_mc_pos,1) / tau
+        print("shape:",z_mc.shape,encoder_z_mc_pos.shape, negative.shape, positive.shape)
+        contrast_loss = tf.reduce_sum(tf.log(negative) - positive)
+        #print("shape2:", z_mc.shape, negative.shape, positive.shape)
         prediction_loss = tf.losses.mean_squared_error(value_input, v_mc)
         total_loss = contrast_loss
         if predict:

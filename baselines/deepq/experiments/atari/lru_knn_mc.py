@@ -53,16 +53,16 @@ class LRU_KNN_MC(object):
         np.save(os.path.join(self.bufpath, 'q_values_decay_%d' % action), self.q_values_decay[:self.curr_capacity])
         np.save(os.path.join(self.bufpath, 'lru_%d' % action), self.lru[:self.curr_capacity])
 
-    def peek(self, hash, value_decay, modify):
+    def peek(self, h, value_decay, modify):
         if self.curr_capacity == 0 or self.build_tree == False:
             return None
 
-        dist, ind = self.hash_tree.query([hash], k=1)
+        dist, ind = self.hash_tree.query([h], k=1)
         ind = ind[0][0]
 
         # if self.states[ind] == key:
         # if np.allclose(self.states[ind], key):
-        if np.allclose(self.hashes[ind], hash, atol=1e-08):
+        if np.allclose(self.hashes[ind], h, atol=1e-08):
             self.lru[ind] = self.tm
             self.tm += 0.01
             if modify:
@@ -84,8 +84,8 @@ class LRU_KNN_MC(object):
                 idxes.append(id)
         return self.states[idxes]
 
-    def act_value(self, key, hash, knn):
-        value = self.peek(hash, None, modify=False)
+    def act_value(self, key, h, knn):
+        value = self.peek(h, None, modify=False)
         if value:
             return value, True
         else:

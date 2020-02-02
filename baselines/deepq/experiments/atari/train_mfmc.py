@@ -216,7 +216,9 @@ if __name__ == '__main__':
                 # print(eps,stochastic,np.random.rand(0, 1))
                 q = []
                 for a in range(env.action_space.n):
+                    #print(z[0].shape,h[0].shape)
                     q_value, found = ec_buffer[a].act_value(z[0][0], h[0][0], args.knn)
+                    q.append(q_value)
                     if found:
                         qec_found += 1
                         qec_watch.append(q_value)
@@ -397,10 +399,11 @@ if __name__ == '__main__':
                 update_kdtree()
             if num_iters % args.encoder_update_freq == 0:
                 update_encoder([args.momentum])
-            if num_iters == 10 and not done:
+            if num_iters == 100:
+                print("saving")
                 obses, acts, rs = list(zip(*sequence))
                 for i, obs in enumerate(obses):
-                    cv2.imwrite("./visual/{}.png".format(i), np.array(obs[:, :, 0]))
+                    cv2.imwrite("./visual/{}.png".format(i), np.array(obs)[:, :, 0])
 
             # sample input to visualize
 
