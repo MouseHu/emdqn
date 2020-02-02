@@ -203,8 +203,8 @@ def build_train_mfmc(make_obs_ph, model_func, num_actions, optimizer, grad_norm_
         # EMDQN
 
         z_norm_summary = tf.summary.scalar("z_norm", tf.reduce_mean(tf.norm(z_mc, axis=1)))
-        encoder_z_norm_summary = tf.summary.scalar("z_norm", tf.reduce_mean(tf.norm(encoder_z_mc_pos, axis=1)))
-        neg_norm_summary = tf.summary.scalar("z_norm", tf.reduce_mean(tf.norm(keys_mc_input_negative, axis=[1, 2])))
+        encoder_z_norm_summary = tf.summary.scalar("encoder_z_norm", tf.reduce_mean(tf.norm(encoder_z_mc_pos, axis=1)))
+        neg_norm_summary = tf.summary.scalar("neg_z_norm", tf.reduce_mean(tf.norm(keys_mc_input_negative, axis=[1, 2])))
         contrast_loss_summary = tf.summary.scalar("contrast loss", tf.reduce_mean(contrast_loss))
         prediction_loss_summary = tf.summary.scalar("prediction loss", tf.reduce_mean(prediction_loss))
         total_loss_summary = tf.summary.scalar("total loss", tf.reduce_mean(total_loss))

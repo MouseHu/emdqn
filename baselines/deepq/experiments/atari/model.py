@@ -81,11 +81,12 @@ def contrastive_model(img_in, num_actions, scope, reuse=False):
         out = layers.flatten(out)
 
         z = layers.fully_connected(out, num_outputs=32, activation_fn=tf.nn.relu)
-
+        normed_z = z / tf.norm(z, axis=1)
+        print("normed_z:",normed_z.shape)
         with tf.variable_scope("action_value"):
             v_h = layers.fully_connected(z, num_outputs=512, activation_fn=tf.nn.relu)
             v = layers.fully_connected(v_h, num_outputs=1, activation_fn=None)
-        return z, v
+        return normed_z, v
 
 
 def dueling_model(img_in, num_actions, scope, reuse=False):
