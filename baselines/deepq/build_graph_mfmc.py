@@ -163,11 +163,11 @@ def build_train_mfmc(make_obs_ph, model_func, num_actions, optimizer, grad_norm_
             obs_mc_input_positive.get(), num_actions,
             scope="encoder_model_func", reuse=True)
 
-        z_mc_dot = tf.reshape(z_mc, [-1, 1, latent_dim])
-        z_mc_dot = tf.tile(z_mc_dot, [1, K, 1])
-        negative = tf.reduce_sum(tf.exp(tf.tensordot(z_mc_dot, keys_mc_input_negative, axes=2) / tau), axis=1)
-        positive = tf.exp(tf.tensordot(z_mc, encoder_z_mc_pos, axes=1) / tau)
-        print("shape:", negative.shape, positive.shape)
+        z_mc_expand = tf.reshape(z_mc, [-1, 1, latent_dim])
+        z_mc_tile = tf.tile(z_mc_expand, [1, K, 1])
+        negative = tf.reduce_sum(tf.exp(tf.tensordot(z_mc_tile, keys_mc_input_negative, axes=2) / tau), axis=1)
+        positive = tf.exp(tf.tensordot(z_mc, encoder_z_mc_pos, axes=2) / tau)
+        print("shape:", z_mc.shape, negative.shape, positive.shape)
         contrast_loss = tf.reduce_sum(tf.log(negative) - tf.log(positive))
         prediction_loss = tf.losses.mean_squared_error(value_input, v_mc)
         total_loss = contrast_loss
@@ -194,7 +194,7 @@ def build_train_mfmc(make_obs_ph, model_func, num_actions, optimizer, grad_norm_
 
         latten_obs = tf.reshape(obs_hash_input.get(), [-1, input_dim])
         rp = tf.random.normal([input_dim, hash_dim], 0, 1 / np.sqrt(hash_dim))
-        obs_hash_output =  tf.matmul(latten_obs,rp)
+        obs_hash_output = tf.matmul(latten_obs, rp)
         hash_func = U.function(
             inputs=[obs_hash_input],
             outputs=[obs_hash_output]

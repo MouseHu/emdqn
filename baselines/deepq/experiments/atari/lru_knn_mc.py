@@ -80,17 +80,17 @@ class LRU_KNN_MC(object):
         while len(idxes) < batch_size:
             id = np.random.randint(0, self.curr_capacity)
 
-            if (id not in idxes) and not (np.array([np.array_equal(self.hashes[id],x) for x in avoids]).any()):
+            if (id not in idxes) and not (np.array([np.array_equal(self.hashes[id], x) for x in avoids]).any()):
                 idxes.append(id)
         return self.states[idxes]
 
     def act_value(self, key, hash, knn):
         value = self.peek(hash, None, modify=False)
         if value:
-            return value
+            return value, True
         else:
-            #print(self.curr_capacity,knn)
-            return self.knn_value(key, knn=knn)
+            # print(self.curr_capacity,knn)
+            return self.knn_value(key, knn=knn), False
 
     def knn_value(self, key, knn, update=True):
         knn = min(self.curr_capacity, knn)
@@ -126,7 +126,7 @@ class LRU_KNN_MC(object):
             self.lru[self.curr_capacity] = self.tm
             self.curr_capacity += 1
         self.tm += 0.01
-        #print("add",self.curr_capacity)
+        # print("add",self.curr_capacity)
         # self.addnum += 1
         # if self.addnum % self.buildnum == 0:
         #    self.addnum = 0
@@ -147,7 +147,7 @@ class LRU_KNN_MC(object):
         if self.build_tree:
             del self.tree
             del self.hash_tree
-        print("build tree",self.curr_capacity)
+        print("build tree", self.curr_capacity)
         self.tree = KDTree(self.states[:self.curr_capacity])
         self.hash_tree = KDTree(self.hashes[:self.curr_capacity])
         self.build_tree = True

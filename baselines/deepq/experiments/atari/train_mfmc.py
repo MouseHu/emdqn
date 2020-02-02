@@ -5,7 +5,7 @@ import os
 import tensorflow as tf
 import tempfile
 import time
-
+import cv2
 import sys
 
 cwd = os.getcwd()
@@ -56,7 +56,9 @@ def parse_args():
                         help="number of stransitions to optimize at the same time")
     parser.add_argument("--learning-freq", type=int, default=4,
                         help="number of iterations between every optimization step")
-    parser.add_argument("--target-update-freq", type=int, default=40000,
+    parser.add_argument("--encoder-update-freq", type=int, default=1000,
+                        help="number of iterations between every target network update")
+    parser.add_argument("--tree-update-freq", type=int, default=10000,
                         help="number of iterations between every target network update")
     # Bells and whistles
     boolean_flag(parser, "prioritized", default=False, help="whether or not to use prioritized replay buffer")
@@ -190,7 +192,7 @@ if __name__ == '__main__':
             ec_buffer.append(LRU_KNN_MC(buffer_size, latent_dim, latent_dim, 'game'))
         # rng = np.random.RandomState(123456)  # deterministic, erase 123456 for stochastic
         # rp = rng.normal(loc=0, scale=1. / np.sqrt(latent_dim), size=(latent_dim, input_dim))
-        qecwatch = []
+        qec_watch = []
         update_counter = 0
         qec_found = 0
         sequence = []
@@ -200,10 +202,10 @@ if __name__ == '__main__':
 
 
         def act(ob, stochastic=0, update_eps=-1):
-            global eps
+            global eps,qec_found,qec_watch
             z = z_func(np.array(ob))
             h = hash_func(np.array(ob))
-            #print(z[0].shape,h[0].shape)
+            # print(z[0].shape,h[0].shape)
             if update_eps >= 0:
                 eps = update_eps
             if np.random.random() < max(stochastic, eps):
@@ -214,7 +216,10 @@ if __name__ == '__main__':
                 # print(eps,stochastic,np.random.rand(0, 1))
                 q = []
                 for a in range(env.action_space.n):
-                    q.append(ec_buffer[a].act_value(z[0][0], h[0][0], args.knn))
+                    q_value, found = ec_buffer[a].act_value(z[0][0], h[0][0], args.knn)
+                    if found:
+                        qec_found += 1
+                        qec_watch.append(q_value)
                 # print("ec",eps,np.argmax(q),q)
                 return np.argmax(q), z, h
 
@@ -235,11 +240,11 @@ if __name__ == '__main__':
             obses = np.array([np.array(ob) for ob in obses])
             hashes = hash_func(obses)
             zs = encoder_z_func(obses)
-            #print(obses.shape,len(hashes[0]),len(zs[0]),len(Rtds))
+            # print(obses.shape,len(hashes[0]),len(zs[0]),len(Rtds))
             for a, z, h, Rtd in zip(acts, zs[0], hashes[0], Rtds):
                 qd = ec_buffer[a].peek(h, Rtd, True)
                 if qd == None:  # new action
-                    #print("add",z,h)
+                    # print("add",z,h)
                     ec_buffer[a].add(z, h, Rtd)
 
 
@@ -312,7 +317,7 @@ if __name__ == '__main__':
             # Take action and store transition in the replay buffer.
             action, z, h = act(np.array(obs)[None], update_eps=exploration.value(num_iters))
             new_obs, rew, done, info = env.step(action)
-            new_h = hash_func(np.array(new_obs)[None,:])
+            new_h = hash_func(np.array(new_obs)[None, :])
             # EMDQN
 
             sequence.append([obs, action, np.clip(rew, -1, 1)])
@@ -350,31 +355,25 @@ if __name__ == '__main__':
                 # EMDQN
                 neg_keys = [
                     ec_buffer[actions_contra[i]].sample_keys([hashes_anchor[i], hashes_pos[i]], args.negative_samples)
-                    for
-                    i in range(args.batch_size)]
+                    for i in range(args.batch_size)]
                 update_counter += 1
                 if args.predict:
                     value_input = np.zeros(args.batch_size)
                     hs = hash_func(obses_t)
-                    for i in range(args.batch_size):
-                        q = ec_buffer[actions[i]].peek(hs[i][0], None, modify=False)
-                        if q != None:
-                            value_input[i] = q
-                            qecwatch.append(q)
-                            qec_found += 1
-                        else:
-                            _, z = act(obses_t[i])
-                            q = ec_buffer[actions[i]].knn_value(z, knn=args.knn)
-                            value_input[i] = q
-                        value_input = np.array(value_input).reshape((args.batch_size))
-                        if update_counter % 2000 == 1999:
-                            print("qec_mean:", np.mean(qecwatch))
-                            print("qec_fount: %.2f" % (1.0 * qec_found / args.batch_size / update_counter))
+                    value_found = [ec_buffer[actions[i]].act_value(z[i], hs[i][0], args.knn) for i in
+                                   range(args.batch_size)]
+                    values, founds = list(zip(*value_found))
+                    qec_found += sum(founds)
+                    qec_watch += sum(values[founds])
+                if update_counter % 200 == 199:
+                    print("qec_mean:", np.mean(qec_watch))
+                    print("qec_fount: %.2f" % (1.0 * qec_found / args.batch_size / update_counter))
 
-                            qec_summary.value[0].simple_value = np.mean(qecwatch)
-                            qec_summary.value[1].simple_value = 1.0 * qec_found / args.batch_size / update_counter
-                            tf_writer.add_summary(qec_summary, global_step=info["steps"])
-                            qecwatch = []
+                    qec_summary.value[0].simple_value = np.mean(qec_watch)
+                    qec_summary.value[1].simple_value = 1.0 * qec_found / args.batch_size / update_counter
+                    tf_writer.add_summary(qec_summary, global_step=info["steps"])
+                    qec_watch = []
+                    qec_found = 0
 
                 # Minimize the error in Bellman's equation and compute TD-error
                 if not args.predict:
@@ -394,11 +393,15 @@ if __name__ == '__main__':
                 # tf_writer.add_summary(summary,global_step=info["steps"])
                 # Update target network.
                 # if num_iters % args.target_update_freq == 0:  # NOTE: why not 10000?
-                update_encoder([args.momentum])
-            if num_iters % args.target_update_freq == 0:
+            if num_iters % args.tree_update_freq == 0:
                 update_kdtree()
-            if num_iters == 100:
-                pass
+            if num_iters % args.encoder_update_freq == 0:
+                update_encoder([args.momentum])
+            if num_iters == 10 and not done:
+                obses, acts, rs = list(zip(*sequence))
+                for i, obs in enumerate(obses):
+                    cv2.imwrite("./visual/{}.png".format(i), np.array(obs[:, :, 0]))
+
             # sample input to visualize
 
             if start_time is not None:
