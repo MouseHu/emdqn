@@ -231,15 +231,16 @@ if __name__ == '__main__':
             for r in reversed(rs):
                 Rtd = r + 0.99 * Rtd
                 Rtds.append(Rtd)
-            Rtds = reversed(Rtds)
+            Rtds = Rtds[::-1]
             obses = np.array([np.array(ob) for ob in obses])
             hashes = hash_func(obses)
             zs = encoder_z_func(obses)
-            for a, z, hash, Rtd in zip(acts, zs, hashes, Rtds):
-                qd = ec_buffer[a].peek(h[0][0], Rtd, True)
+            #print(obses.shape,len(hashes[0]),len(zs[0]),len(Rtds))
+            for a, z, h, Rtd in zip(acts, zs[0], hashes[0], Rtds):
+                qd = ec_buffer[a].peek(h, Rtd, True)
                 if qd == None:  # new action
-                    #print(z[0],h[0][0])
-                    ec_buffer[a].add(z[0], h[0][0], Rtd)
+                    #print("add",z,h)
+                    ec_buffer[a].add(z, h, Rtd)
 
 
         # Create training graph and replay buffer

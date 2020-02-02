@@ -89,6 +89,7 @@ class LRU_KNN_MC(object):
         if value:
             return value
         else:
+            #print(self.curr_capacity,knn)
             return self.knn_value(key, knn=knn)
 
     def knn_value(self, key, knn, update=True):
@@ -125,6 +126,7 @@ class LRU_KNN_MC(object):
             self.lru[self.curr_capacity] = self.tm
             self.curr_capacity += 1
         self.tm += 0.01
+        #print("add",self.curr_capacity)
         # self.addnum += 1
         # if self.addnum % self.buildnum == 0:
         #    self.addnum = 0
@@ -145,7 +147,7 @@ class LRU_KNN_MC(object):
         if self.build_tree:
             del self.tree
             del self.hash_tree
-        # print(self.curr_capacity)
+        print("build tree",self.curr_capacity)
         self.tree = KDTree(self.states[:self.curr_capacity])
         self.hash_tree = KDTree(self.hashes[:self.curr_capacity])
         self.build_tree = True
