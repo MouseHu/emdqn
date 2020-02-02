@@ -379,9 +379,9 @@ if __name__ == '__main__':
 
                 # Minimize the error in Bellman's equation and compute TD-error
                 if not args.predict:
-                    inputs = [[1], obses_anchor, obses_pos, neg_keys]
+                    inputs = [[100], obses_anchor, obses_pos, neg_keys]
                 else:
-                    inputs = [[1], obses_anchor, obses_pos, neg_keys, obses_t, value_input]
+                    inputs = [[100], obses_anchor, obses_pos, neg_keys, obses_t, value_input]
 
                 total_errors, summary = train(*inputs)
 
