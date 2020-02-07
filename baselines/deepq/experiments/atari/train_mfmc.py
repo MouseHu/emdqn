@@ -220,6 +220,7 @@ if __name__ == '__main__':
                     q_value, found = ec_buffer[a].act_value(z[0][0], h[0][0], args.knn)
                     q.append(q_value)
                     if found:
+                        print("found")
                         qec_found += 1
                         qec_watch.append(q_value)
                 # print("ec",eps,np.argmax(q),q)
@@ -263,7 +264,7 @@ if __name__ == '__main__':
             predict=args.predict
         )
 
-
+        tf_writer.add_graph(sess.graph)
         def test_agent():  # TODO
             tenv, tenv_monitor = make_env(args.env)
             tenv.unwrapped.seed(args.seed)
@@ -332,7 +333,7 @@ if __name__ == '__main__':
                 sequence = []
                 obs = env.reset()
 
-            if (num_iters > max(5 * args.batch_size, args.replay_buffer_size // 20) and
+            if (num_iters > max(5 * args.batch_size, args.replay_buffer_size // 200) and
                 num_iters % args.learning_freq == 0) and args.learning:
                 # Sample a bunch of transitions from replay buffer
                 # if args.prioritized:
@@ -367,21 +368,13 @@ if __name__ == '__main__':
                     values, founds = list(zip(*value_found))
                     qec_found += sum(founds)
                     qec_watch += sum(values[founds])
-                if update_counter % 200 == 199:
-                    print("qec_mean:", np.mean(qec_watch))
-                    print("qec_fount: %.2f" % (1.0 * qec_found / args.batch_size / update_counter))
-
-                    qec_summary.value[0].simple_value = np.mean(qec_watch)
-                    qec_summary.value[1].simple_value = 1.0 * qec_found / args.batch_size / update_counter
-                    tf_writer.add_summary(qec_summary, global_step=info["steps"])
-                    qec_watch = []
-                    qec_found = 0
+                
 
                 # Minimize the error in Bellman's equation and compute TD-error
                 if not args.predict:
-                    inputs = [[100], obses_anchor, obses_pos, neg_keys]
+                    inputs = [[1], obses_anchor, obses_pos, neg_keys]
                 else:
-                    inputs = [[100], obses_anchor, obses_pos, neg_keys, obses_t, value_input]
+                    inputs = [[1], obses_anchor, obses_pos, neg_keys, obses_t, value_input]
 
                 total_errors, summary = train(*inputs)
 
@@ -404,7 +397,15 @@ if __name__ == '__main__':
                 obses, acts, rs = list(zip(*sequence))
                 for i, obs in enumerate(obses):
                     cv2.imwrite("./visual/{}.png".format(i), np.array(obs)[:, :, 0])
+            if num_iters % 2000 == 1999:
+                print("qec_mean:", np.mean(qec_watch))
+                print("qec_found: %.2f" % (1.0 * qec_found / 2000))
 
+                qec_summary.value[0].simple_value = np.mean(qec_watch)
+                qec_summary.value[1].simple_value = 1.0 * qec_found / 2000
+                tf_writer.add_summary(qec_summary, global_step=info["steps"])
+                qec_watch = []
+                qec_found = 0
             # sample input to visualize
 
             if start_time is not None:

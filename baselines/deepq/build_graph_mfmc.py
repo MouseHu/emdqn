@@ -163,12 +163,13 @@ def build_train_mfmc(make_obs_ph, model_func, num_actions, optimizer, grad_norm_
             obs_mc_input_positive.get(), num_actions,
             scope="encoder_model_func", reuse=True)
 
-        z_mc = tf.reshape(z_mc, [-1, latent_dim, 1])
+        encoder_z_mc_pos = tf.stop_gradient(encoder_z_mc_pos)
+        z_mc_expand = tf.reshape(z_mc, [-1, latent_dim, 1])
         # z_mc_tile = tf.tile(z_mc_expand, [1, K, 1])
-        negative = tf.reduce_sum(tf.exp(tf.matmul(keys_mc_input_negative, z_mc) / tau), axis=1)
-        positive = tf.reduce_sum(z_mc * encoder_z_mc_pos, 1) / tau
+        negative = tf.reduce_sum(tf.exp(tf.matmul(keys_mc_input_negative, z_mc_expand) / tau), axis=1)
+        positive = tf.reduce_sum(z_mc * encoder_z_mc_pos, 1,keepdims=True) / tau
         print("shape:", z_mc.shape, encoder_z_mc_pos.shape, negative.shape, positive.shape)
-        contrast_loss = tf.reduce_sum(tf.log(negative) - positive)
+        contrast_loss = tf.reduce_mean(tf.log(negative) - positive)
         # print("shape2:", z_mc.shape, negative.shape, positive.shape)
         prediction_loss = tf.losses.mean_squared_error(value_input, v_mc)
         total_loss = contrast_loss
@@ -201,19 +202,20 @@ def build_train_mfmc(make_obs_ph, model_func, num_actions, optimizer, grad_norm_
             outputs=[obs_hash_output]
         )
         # EMDQN
-
-        z_norm_summary = tf.summary.scalar("z_norm", tf.reduce_mean(tf.norm(z_mc, axis=1)))
-        encoder_z_norm_summary = tf.summary.scalar("encoder_z_norm", tf.reduce_mean(tf.norm(encoder_z_mc_pos, axis=1)))
-        neg_norm_summary = tf.summary.scalar("neg_z_norm", tf.reduce_mean(tf.norm(keys_mc_input_negative, axis=[1, 2])))
+        positive_summary = tf.summary.scalar("positive", tf.reduce_mean(positive))
+        negative_summary = tf.summary.scalar("negative", tf.reduce_mean(tf.log(negative)))
+        #z_norm_summary = tf.summary.scalar("z_norm", tf.reduce_mean(tf.norm(z_mc, axis=1)))
+        #encoder_z_norm_summary = tf.summary.scalar("encoder_z_norm", tf.reduce_mean(tf.norm(encoder_z_mc_pos, axis=1)))
+        #neg_norm_summary = tf.summary.scalar("neg_z_norm", tf.reduce_mean(tf.norm(keys_mc_input_negative, axis=[1, 2])))
         contrast_loss_summary = tf.summary.scalar("contrast loss", tf.reduce_mean(contrast_loss))
         prediction_loss_summary = tf.summary.scalar("prediction loss", tf.reduce_mean(prediction_loss))
         total_loss_summary = tf.summary.scalar("total loss", tf.reduce_mean(total_loss))
 
         if predict:
-            summaries = [z_norm_summary, encoder_z_norm_summary, neg_norm_summary, contrast_loss_summary,
+            summaries = [positive_summary,negative_summary,contrast_loss_summary,
                          prediction_loss_summary, total_loss_summary]
         else:
-            summaries = [z_norm_summary, encoder_z_norm_summary, neg_norm_summary, contrast_loss_summary,
+            summaries = [positive_summary,negative_summary,contrast_loss_summary,
                          total_loss_summary]
         summary = tf.summary.merge(summaries)
 
