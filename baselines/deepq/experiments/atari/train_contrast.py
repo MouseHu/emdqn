@@ -5,7 +5,7 @@ import os
 import tensorflow as tf
 import tempfile
 import time
-import cv2
+
 import sys
 
 cwd = os.getcwd()
@@ -20,7 +20,7 @@ import baselines.common.tf_util as U
 import datetime
 from baselines import logger
 from baselines import deepq
-from baselines.deepq.replay_buffer import ReplayBufferHash, PrioritizedReplayBuffer
+from baselines.deepq.replay_buffer import ReplayBufferContra, PrioritizedReplayBuffer
 from baselines.common.misc_util import (
     boolean_flag,
     pickle_load,
@@ -36,7 +36,7 @@ from baselines.common.schedules import LinearSchedule, PiecewiseSchedule
 from baselines.common.atari_wrappers_deprecated import wrap_dqn
 from baselines.common.azure_utils import Container
 from baselines.deepq.experiments.atari.model import contrastive_model
-from baselines.deepq.experiments.atari.lru_knn_mc import LRU_KNN_MC
+from baselines.deepq.experiments.atari.lru_knn import LRU_KNN
 
 
 def parse_args():
@@ -46,28 +46,18 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=42, help="which seed to use")
     # Core DQN parameters
     parser.add_argument("--replay-buffer-size", type=int, default=int(1e6), help="replay buffer size")
-    parser.add_argument("--lr", type=float, default=1e-3, help="learning rate for Adam optimizer")
-    parser.add_argument("--momentum", type=float, default=0.999, help="momentum for momentum contrastive encoder")
-    parser.add_argument("--negative-samples", type=int, default=10, help="numbers for negative samples")
-    parser.add_argument("--knn", type=int, default=4, help="number of k nearest neighbours")
+    parser.add_argument("--lr", type=float, default=1e-4, help="learning rate for Adam optimizer")
     parser.add_argument("--num-steps", type=int, default=int(1e7),
                         help="total number of steps to run the environment for")
-    parser.add_argument("--batch-size", type=int, default=32,
-                        help="number of stransitions to optimize at the same time")
+    parser.add_argument("--batch-size", type=int, default=128,
+                        help="number of transitions to optimize at the same time")
     parser.add_argument("--learning-freq", type=int, default=4,
                         help="number of iterations between every optimization step")
-    parser.add_argument("--encoder-update-freq", type=int, default=1000,
+    parser.add_argument("--target-update-freq", type=int, default=10000,
                         help="number of iterations between every target network update")
-    parser.add_argument("--tree-update-freq", type=int, default=10000,
-                        help="number of iterations between every target network update")
+    parser.add_argument("--knn", type=int, default=4, help="number of k nearest neighbours")
+    parser.add_argument("--end_training", type=int, default=5e5, help="number of pretrain steps")
     # Bells and whistles
-    boolean_flag(parser, "prioritized", default=False, help="whether or not to use prioritized replay buffer")
-    parser.add_argument("--prioritized-alpha", type=float, default=0.6,
-                        help="alpha parameter for prioritized replay buffer")
-    parser.add_argument("--prioritized-beta0", type=float, default=0.4,
-                        help="initial value of beta parameters for prioritized replay")
-    parser.add_argument("--prioritized-eps", type=float, default=1e-6,
-                        help="eps parameter for prioritized replay buffer")
     # Checkpointing
     parser.add_argument("--save-dir", type=str, default=None,
                         help="directory in which training state and model should be saved.")
@@ -84,11 +74,12 @@ def parse_args():
     boolean_flag(parser, "load-on-start", default=True,
                  help="if true and model was previously saved then training will be resumed")
 
+    boolean_flag(parser, "learning", default=False,
+                 help="if true and model was continued learned")
+
     # EMDQN
-
-    boolean_flag(parser, "predict", default=False, help="whether or not to use prediction")
-    boolean_flag(parser, "learning", default=False, help="whether or not to learn encoder")
-
+    boolean_flag(parser, "train-latent", default=False, help="whether or not to further train latent")
+    boolean_flag(parser, "vae", default=False, help="whether or not to further train vae")
     return parser.parse_args()
 
 
@@ -139,19 +130,10 @@ def maybe_load_model(savedir, container):
         return state
 
 
-def switch_first_half(obs, obs_next, batch_size):
-    half_size = int(batch_size / 2)
-    tmp = obs[:half_size, ...]
-    obs[:half_size, ...] = obs_next[:half_size, ...]
-    obs_next[:half_size, ...] = tmp
-    return obs, obs_next
-
-
 if __name__ == '__main__':
-
     args = parse_args()
-    print("predict value:{} learning:{}".format(args.predict, args.learning))
-    tf.random.set_random_seed(args.seed)
+    if args.train_latent:
+        print("Training latent")
     # Parse savedir and azure container.
     savedir = args.save_dir
     if args.save_azure_container is not None:
@@ -182,49 +164,39 @@ if __name__ == '__main__':
 
     with U.make_session(4) as sess:
         # EMDQN
+
         ec_buffer = []
-        buffer_size = 50000
-        latent_dim = args.latent_dim
-        input_dim = 84 * 84 * 4
-        # rng = np.random.RandomState(123456)  # deterministic, erase 123456 for stochastic
-        # rp = rng.normal(loc=0, scale=1. / np.sqrt(latent_dim), size=(latent_dim, input_dim))
+        buffer_size = 100000
+        # input_dim = 1024
         for i in range(env.action_space.n):
-            ec_buffer.append(LRU_KNN_MC(buffer_size, latent_dim, latent_dim, 'game'))
+            ec_buffer.append(LRU_KNN(buffer_size, args.latent_dim, 'game'))
         # rng = np.random.RandomState(123456)  # deterministic, erase 123456 for stochastic
         # rp = rng.normal(loc=0, scale=1. / np.sqrt(latent_dim), size=(latent_dim, input_dim))
-        qec_watch = []
+        qecwatch = []
         update_counter = 0
         qec_found = 0
         sequence = []
+
         tfout = open(
-            './results/result_%s_mfmc_predict%s_%s' % (args.env, str(args.predict), args.comment), 'w+')
-        visualout = './visual/'
+            './results/result_%s_mfvae_%s' % (args.env, args.comment), 'w+')
 
 
-        def act(ob, stochastic=0, update_eps=-1):
-            global eps,qec_found,qec_watch
-            z = z_func(np.array(ob))
-            h = hash_func(np.array(ob))
-            # print(z[0].shape,h[0].shape)
+        def act(ob, act_noise, stochastic=0, update_eps=-1):
+            global eps
+            z = z_func(ob, act_noise)
             if update_eps >= 0:
                 eps = update_eps
             if np.random.random() < max(stochastic, eps):
                 action = np.random.randint(0, env.action_space.n)
                 # print(eps,env.action_space.n,action)
-                return action, z, h
+                return action, z
             else:
                 # print(eps,stochastic,np.random.rand(0, 1))
                 q = []
                 for a in range(env.action_space.n):
-                    #print(z[0].shape,h[0].shape)
-                    q_value, found = ec_buffer[a].act_value(z[0][0], h[0][0], args.knn)
-                    q.append(q_value)
-                    if found:
-                        print("found")
-                        qec_found += 1
-                        qec_watch.append(q_value)
+                    q.append(ec_buffer[a].knn_value(z, args.knn))
                 # print("ec",eps,np.argmax(q),q)
-                return np.argmax(q), z, h
+                return np.argmax(q), z
 
 
         def update_kdtree():
@@ -233,38 +205,32 @@ if __name__ == '__main__':
 
 
         def update_ec(sequence):
-            obses, acts, rs = list(zip(*sequence))
-            Rtds = []
-            Rtd = 0
-            for r in reversed(rs):
+            Rtd = 0.
+            Rtds = [0]
+            for seq in reversed(sequence):
+                s, z, a, r = seq
+                # z = s.flatten()
+                # z = np.dot(rp, s.flatten())
                 Rtd = r + 0.99 * Rtd
                 Rtds.append(Rtd)
-            Rtds = Rtds[::-1]
-            obses = np.array([np.array(ob) for ob in obses])
-            hashes = hash_func(obses)
-            zs = encoder_z_func(obses)
-            # print(obses.shape,len(hashes[0]),len(zs[0]),len(Rtds))
-            for a, z, h, Rtd in zip(acts, zs[0], hashes[0], Rtds):
-                qd = ec_buffer[a].peek(h, Rtd, True)
+                z = z.reshape((args.latent_dim))
+                qd = ec_buffer[a].peek(z, Rtd, True)
                 if qd == None:  # new action
-                    # print("add",z,h)
-                    ec_buffer[a].add(z, h, Rtd)
+                    ec_buffer[a].add(z, Rtd)
+            return Rtds
 
 
         # Create training graph and replay buffer
-        hash_func, z_func, encoder_z_func, update_encoder, train = deepq.build_train_mfmc(
+        z_func, train = deepq.build_train_contrast(
             make_obs_ph=lambda name: U.Uint8Input(env.observation_space.shape, name=name),
             model_func=contrastive_model,
             num_actions=env.action_space.n,
             optimizer=tf.train.AdamOptimizer(learning_rate=args.lr, epsilon=1e-4),
             gamma=0.99,
             grad_norm_clipping=10,
-            input_dim=84 * 84 * 4,
-            K=args.negative_samples,
-            predict=args.predict
         )
 
-        tf_writer.add_graph(sess.graph)
+
         def test_agent():  # TODO
             tenv, tenv_monitor = make_env(args.env)
             tenv.unwrapped.seed(args.seed)
@@ -272,7 +238,8 @@ if __name__ == '__main__':
             for i in range(30):
                 tobs = tenv.reset()
                 while True:
-                    action, z_test, h_test = act(np.array(tobs)[None], stochastic=0.05)
+                    action, z = \
+                        act(np.array(tobs)[None], stochastic=0.05)[0]
                     tobs, rew, done, info = tenv.step(action)
                     print(info)
                     if done and len(info["rewards"]) > 0:
@@ -289,7 +256,8 @@ if __name__ == '__main__':
         approximate_num_iters = args.num_steps / 4
         exploration = PiecewiseSchedule([
             (0, 1.0),
-            (approximate_num_iters / 50, 0.1),
+            (args.end_training, 1.0),
+            (approximate_num_iters / 10, 0.1),
             (approximate_num_iters / 5, 0.01)
         ], outside_value=0.01)
 
@@ -297,10 +265,9 @@ if __name__ == '__main__':
             replay_buffer = PrioritizedReplayBuffer(args.replay_buffer_size, args.prioritized_alpha)
             beta_schedule = LinearSchedule(approximate_num_iters, initial_p=args.prioritized_beta0, final_p=1.0)
         else:
-            replay_buffer = ReplayBufferHash(args.replay_buffer_size)
+            replay_buffer = ReplayBufferContra(args.replay_buffer_size)
 
         U.initialize()
-        update_encoder([0])
         num_iters = 0
 
         # Load the model
@@ -318,95 +285,30 @@ if __name__ == '__main__':
         while True:
             num_iters += 1
             # Take action and store transition in the replay buffer.
-            action, z, h = act(np.array(obs)[None], update_eps=exploration.value(num_iters))
+            action, z = \
+                act(np.array(obs)[None], update_eps=exploration.value(num_iters),
+                    act_noise=np.random.randn(1, args.latent_dim))
             new_obs, rew, done, info = env.step(action)
-            new_h = hash_func(np.array(new_obs)[None, :])
             # EMDQN
-
-            sequence.append([obs, action, np.clip(rew, -1, 1)])
-            if args.learning:
-                replay_buffer.add(obs, h, action, rew, new_obs, new_h, float(done))
+            sequence.append([obs, z, action, np.clip(rew, -1, 1)])
+            replay_buffer.add(obs, action, rew, new_obs, float(done))
             obs = new_obs
             if done:
                 # EMDQN
-                update_ec(sequence)
-                sequence = []
+                if num_iters>= args.end_training:
+                    update_ec(sequence)
                 obs = env.reset()
 
-            if (num_iters > max(5 * args.batch_size, args.replay_buffer_size // 200) and
-                num_iters % args.learning_freq == 0) and args.learning:
-                # Sample a bunch of transitions from replay buffer
-                # if args.prioritized:
-                #     experience_contra = replay_buffer.sample(args.batch_size, beta=beta_schedule.value(num_iters))
-                #     (obses_contra, actions, rewards_contra, obses_contra, dones_contra, weights_contra,
-                #      batch_idxes_contra) = experience_contra
-                #     obses_anchor, obses_pos = switch_first_half(obses_contra, obses_contra_tp1, args.batch_size)
-                #     if args.predict:
-                #         experience = replay_buffer.sample(args.batch_size, beta=beta_schedule.value(num_iters))
-                #         (obses_t, actions, rewards, obses_tp1, dones, weights, batch_idxes) = experience
-                #
-                # else:
-                if args.predict:
-                    obses_t, hashes_t, actions, rewards, obses_tp1, hashes_tp1, dones = replay_buffer.sample(
-                        args.batch_size)
-                obses_contra, hashes_contra, actions_contra, rewards_contra, obses_contra_tp1, hashes_contra_tp1, dones_contra = replay_buffer.sample(
-                    args.batch_size)
-                # obses_anchor, obses_pos = switch_first_half(obses_contra, obses_contra_tp1, args.batch_size)
-                # hashes_anchor, hashes_pos = switch_first_half(hashes_contra, hashes_contra_tp1, args.batch_size)
-                obses_anchor, obses_pos = obses_contra, obses_contra_tp1
-                hashes_anchor, hashes_pos = hashes_contra, hashes_contra_tp1
-                # EMDQN
-                neg_keys = [
-                    ec_buffer[actions_contra[i]].sample_keys([hashes_anchor[i], hashes_pos[i]], args.negative_samples)
-                    for i in range(args.batch_size)]
-                update_counter += 1
-                if args.predict:
-                    value_input = np.zeros(args.batch_size)
-                    hs = hash_func(obses_t)
-                    value_found = [ec_buffer[actions[i]].act_value(z[i], hs[i][0], args.knn) for i in
-                                   range(args.batch_size)]
-                    values, founds = list(zip(*value_found))
-                    qec_found += sum(founds)
-                    qec_watch += sum(values[founds])
-                
-
-                # Minimize the error in Bellman's equation and compute TD-error
-                if not args.predict:
-                    inputs = [[1], obses_anchor, obses_pos, neg_keys]
-                else:
-                    inputs = [[1], obses_anchor, obses_pos, neg_keys, obses_t, value_input]
-
-                total_errors, summary = train(*inputs)
-
-                # Update the priorities in the replay buffer
-                # if args.prioritized:
-                #     new_priorities = np.abs(total_errors) + args.prioritized_eps
-                #     replay_buffer.update_priorities(batch_idxes, new_priorities)
-
-                tf_writer.add_summary(summary, global_step=info["steps"])
-
-                # tf_writer.add_summary(summary,global_step=info["steps"])
+                if num_iters < args.end_training or args.learning:
+                    # train vae
+                    obses_t, actions, rewards, obses_tp1, dones, obses_neg = replay_buffer.sample(args.batch_size)
+                    inputs = [[1], obses_t, obses_tp1, obses_neg]
+                    total_errors, summary = train(*inputs)
+                    tf_writer.add_summary(summary, global_step=info["steps"])
+                    # tf_writer.add_summary(summary,global_step=info["steps"])
                 # Update target network.
-                # if num_iters % args.target_update_freq == 0:  # NOTE: why not 10000?
-            if num_iters % args.tree_update_freq == 0:
+            if num_iters % args.target_update_freq == 0:  # NOTE: why not 10000?
                 update_kdtree()
-            if num_iters % args.encoder_update_freq == 0:
-                update_encoder([args.momentum])
-            if num_iters == 100:
-                print("saving")
-                obses, acts, rs = list(zip(*sequence))
-                for i, obs in enumerate(obses):
-                    cv2.imwrite("./visual/{}.png".format(i), np.array(obs)[:, :, 0])
-            if num_iters % 2000 == 1999:
-                print("qec_mean:", np.mean(qec_watch))
-                print("qec_found: %.2f" % (1.0 * qec_found / 2000))
-
-                qec_summary.value[0].simple_value = np.mean(qec_watch)
-                qec_summary.value[1].simple_value = 1.0 * qec_found / 2000
-                tf_writer.add_summary(qec_summary, global_step=info["steps"])
-                qec_watch = []
-                qec_found = 0
-            # sample input to visualize
 
             if start_time is not None:
                 steps_per_iter.update(info['steps'] - start_steps)
@@ -428,6 +330,7 @@ if __name__ == '__main__':
                 break
 
             if done:
+                sequence = []
                 steps_left = args.num_steps - info["steps"]
                 completion = np.round(info["steps"] / args.num_steps, 2)
 
@@ -442,8 +345,6 @@ if __name__ == '__main__':
                     tfout.write("%d, %.2f\n" % (info["steps"], np.mean(info["rewards"][-100:])))
                     tfout.flush()
                 logger.record_tabular("exploration", exploration.value(num_iters))
-                if args.prioritized:
-                    logger.record_tabular("max priority", replay_buffer._max_priority)
                 fps_estimate = (float(steps_per_iter) / (float(iteration_time_est) + 1e-6)
                                 if steps_per_iter._value is not None else "calculating...")
                 logger.dump_tabular()
@@ -452,7 +353,7 @@ if __name__ == '__main__':
                 logger.log()
             tf_writer.add_summary(value_summary, global_step=info["steps"])
 
-            # if num_iters % 1000000 == 1:
-            #     avg_score = test_agent()
-            #     tfout.write("test:%.2f\n" % avg_score)
-            #     tfout.flush()
+            if num_iters % 1000000 == 999999:
+                avg_score = test_agent()
+                tfout.write("test: %.2f\n" % avg_score)
+                tfout.flush()
