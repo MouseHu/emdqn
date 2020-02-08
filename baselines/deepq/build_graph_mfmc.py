@@ -205,8 +205,9 @@ def build_train_mfmc(make_obs_ph, model_func, num_actions, optimizer, grad_norm_
             outputs=[obs_hash_output]
         )
         # EMDQN
-        positive_summary = tf.summary.scalar("positive", tf.reduce_mean(positive))
-        negative_summary = tf.summary.scalar("negative", tf.reduce_mean(tf.log(negative)))
+        z_var_summary = tf.summary.scalar("z_var", tf.reduce_mean(tf.math.reduce_std(z_mc, axis=1)))
+        negative_summary = tf.summary.scalar("negative", tf.reduce_mean(tf.reduce_mean(negative)))
+        positive_summary = tf.summary.scalar("positive", tf.reduce_mean(tf.reduce_mean(positive)))
         # z_norm_summary = tf.summary.scalar("z_norm", tf.reduce_mean(tf.norm(z_mc, axis=1)))
         # encoder_z_norm_summary = tf.summary.scalar("encoder_z_norm", tf.reduce_mean(tf.norm(encoder_z_mc_pos, axis=1)))
         # neg_norm_summary = tf.summary.scalar("neg_z_norm", tf.reduce_mean(tf.norm(keys_mc_input_negative, axis=[1, 2])))
@@ -215,10 +216,10 @@ def build_train_mfmc(make_obs_ph, model_func, num_actions, optimizer, grad_norm_
         total_loss_summary = tf.summary.scalar("total loss", tf.reduce_mean(total_loss))
 
         if predict:
-            summaries = [positive_summary, negative_summary, contrast_loss_summary,
+            summaries = [z_var_summary, positive_summary, negative_summary, contrast_loss_summary,
                          prediction_loss_summary, total_loss_summary]
         else:
-            summaries = [positive_summary, negative_summary, contrast_loss_summary,
+            summaries = [z_var_summary, positive_summary, negative_summary, contrast_loss_summary,
                          total_loss_summary]
         summary = tf.summary.merge(summaries)
 
