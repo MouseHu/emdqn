@@ -86,8 +86,9 @@ def build_act_contrast(make_obs_ph, model_func, num_actions, scope="deepq", seco
         return act
 
 
-def build_train_contrast(make_obs_ph, model_func, num_actions, optimizer, grad_norm_clipping=None, gamma=1.0, scope="mfec",
-                     latent_dim=32, input_dim=84 * 84 * 4, hash_dim=32, K=10, beta=0.1, predict=True, reuse=None):
+def build_train_contrast(make_obs_ph, model_func, num_actions, optimizer, grad_norm_clipping=None, gamma=1.0,
+                         scope="mfec",
+                         latent_dim=32, input_dim=84 * 84 * 4, hash_dim=32, K=10, beta=0.1, predict=True, reuse=None):
     """Creates the train function:
 
     Parameters
@@ -127,7 +128,7 @@ def build_train_contrast(make_obs_ph, model_func, num_actions, optimizer, grad_n
         a bunch of functions to print debug data like q_values.
     """
     z_func = build_act_contrast(make_obs_ph, model_func, num_actions, scope=scope, secondary_scope="model_func",
-                            reuse=reuse)
+                                reuse=reuse)
 
     with tf.variable_scope(scope, reuse=reuse):
         # set up placeholders
@@ -159,14 +160,15 @@ def build_train_contrast(make_obs_ph, model_func, num_actions, optimizer, grad_n
             obs_mc_input_negative.get(), num_actions,
             scope="model_func", reuse=True)
 
-        z_mc_pos = tf.reshape(z_mc_pos,[-1,1,latent_dim])
-        z_mc_expand = tf.reshape(z_mc, [-1, latent_dim, 1])
-        z_mc_neg = tf.reshape(z_mc_neg, [-1, 1,latent_dim * K])
-        z_mc_tile = tf.tile(z_mc_expand, [1, K, 1])
-        negative = tf.matmul(z_mc_neg, z_mc_tile) / (tau*K)
-        sum_negative = tf.exp(negative)
-        positive = tf.matmul(z_mc_pos,z_mc_expand) /tau
-        print("shape:", z_mc.shape, z_mc_pos.shape, z_mc_neg.shape,z_mc_tile.shape,sum_negative.shape,negative.shape, positive.shape)
+        z_mc_pos = tf.reshape(z_mc_pos, [-1, 1, latent_dim])
+        z_mc = tf.reshape(z_mc, [-1, latent_dim, 1])
+        z_mc_neg = tf.reshape(z_mc_neg, [-1, K, latent_dim])
+
+        negative = tf.matmul(z_mc_neg, z_mc) / tau
+        sum_negative = tf.squeeze(tf.reduce_sum(tf.exp(negative), axis=1))
+        positive = tf.squeeze(tf.matmul(z_mc_pos, z_mc) / tau)
+        print("shape:", z_mc.shape, z_mc_pos.shape, z_mc_neg.shape, sum_negative.shape, negative.shape,
+              positive.shape)
         contrast_loss = tf.reduce_mean(tf.log(sum_negative) - positive)
         # print("shape2:", z_mc.shape, negative.shape, positive.shape)
         # prediction_loss = tf.losses.mean_squared_error(value_input, v_mc)

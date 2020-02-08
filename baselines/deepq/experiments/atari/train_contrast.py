@@ -195,8 +195,8 @@ if __name__ == '__main__':
                 # print(eps,stochastic,np.random.rand(0, 1))
                 q = []
                 for a in range(env.action_space.n):
-                    #print(np.array(z).shape)
-                    
+                    # print(np.array(z).shape)
+
                     q.append(ec_buffer[a].knn_value(z, args.knn))
                 # print("ec",eps,np.argmax(q),q)
                 return np.argmax(q), z
@@ -264,12 +264,11 @@ if __name__ == '__main__':
             (approximate_num_iters / 5, 0.01)
         ], outside_value=0.01)
 
-
         replay_buffer = ReplayBufferContra(args.replay_buffer_size)
 
         U.initialize()
         num_iters = 0
-
+        episodic_return = [0.0]
         # Load the model
         state = maybe_load_model(savedir, container)
         if state is not None:
@@ -288,15 +287,17 @@ if __name__ == '__main__':
             action, z = \
                 act(np.array(obs)[None], update_eps=exploration.value(num_iters))
             new_obs, rew, done, info = env.step(action)
+            episodic_return[-1] += rew
             # EMDQN
             sequence.append([obs, z, action, np.clip(rew, -1, 1)])
             replay_buffer.add(obs, action, rew, new_obs, float(done))
             obs = new_obs
             if done:
                 # EMDQN
-                if num_iters>= args.end_training:
+                if num_iters >= args.end_training:
                     update_ec(sequence)
                 obs = env.reset()
+                episodic_return.append(0.0)
 
                 if num_iters < args.end_training or args.learning:
                     # train vae
@@ -306,7 +307,7 @@ if __name__ == '__main__':
                     tf_writer.add_summary(summary, global_step=info["steps"])
                     # tf_writer.add_summary(summary,global_step=info["steps"])
                 # Update target network.
-            if num_iters % args.target_update_freq == 0 and num_iters>args.end_training+10000:  # NOTE: why not 10000?
+            if num_iters % args.target_update_freq == 0 and num_iters > args.end_training + 10000:  # NOTE: why not 10000?
                 update_kdtree()
 
             if start_time is not None:
@@ -329,6 +330,7 @@ if __name__ == '__main__':
                 break
 
             if done:
+                return_mean = max(len(episodic_return), 100)
                 sequence = []
                 steps_left = args.num_steps - info["steps"]
                 completion = np.round(info["steps"] / args.num_steps, 2)
@@ -337,11 +339,11 @@ if __name__ == '__main__':
                 logger.record_tabular("steps", info["steps"])
                 logger.record_tabular("iters", num_iters)
                 logger.record_tabular("episodes", len(info["rewards"]))
-                logger.record_tabular("reward (100 epi mean)", np.mean(info["rewards"][-100:]))
-                value_summary.value[0].simple_value = np.mean(info["rewards"][-100:])
+                logger.record_tabular("reward (100 epi mean)", np.mean(episodic_return[-return_mean:]))
+                value_summary.value[0].simple_value = np.mean(episodic_return[-return_mean:])
                 if len(info["rewards"]) > 1:
                     np.mean(info["rewards"][-100:])
-                    tfout.write("%d, %.2f\n" % (info["steps"], np.mean(info["rewards"][-100:])))
+                    tfout.write("%d, %.2f\n" % (info["steps"], np.mean(episodic_return[-return_mean:])))
                     tfout.flush()
                 logger.record_tabular("exploration", exploration.value(num_iters))
                 fps_estimate = (float(steps_per_iter) / (float(iteration_time_est) + 1e-6)
