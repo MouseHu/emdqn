@@ -159,13 +159,15 @@ def build_train_contrast(make_obs_ph, model_func, num_actions, optimizer, grad_n
             obs_mc_input_negative.get(), num_actions,
             scope="model_func", reuse=True)
 
-        z_mc = tf.reshape(z_mc, [-1, latent_dim, 1])
-        z_mc_neg = tf.reshape(z_mc, [-1, latent_dim * K])
-        z_mc_tile = tf.reshape(tf.tile(z_mc, [1, 1, K]), [-1, latent_dim * K])
-        negative = tf.reduce_sum(tf.exp(tf.tensordot(z_mc_neg, z_mc_tile, axis=1) / tau), axis=1)
-        positive = tf.reduce_sum(z_mc * z_mc_pos, 1) / tau
-        print("shape:", z_mc.shape, z_mc_pos.shape, negative.shape, positive.shape)
-        contrast_loss = tf.reduce_sum(tf.log(negative) - positive)
+        z_mc_pos = tf.reshape(z_mc_pos,[-1,1,latent_dim])
+        z_mc_expand = tf.reshape(z_mc, [-1, latent_dim, 1])
+        z_mc_neg = tf.reshape(z_mc_neg, [-1, 1,latent_dim * K])
+        z_mc_tile = tf.tile(z_mc_expand, [1, K, 1])
+        negative = tf.matmul(z_mc_neg, z_mc_tile) / (tau*K)
+        sum_negative = tf.exp(negative)
+        positive = tf.matmul(z_mc_pos,z_mc_expand) /tau
+        print("shape:", z_mc.shape, z_mc_pos.shape, z_mc_neg.shape,z_mc_tile.shape,sum_negative.shape,negative.shape, positive.shape)
+        contrast_loss = tf.reduce_mean(tf.log(sum_negative) - positive)
         # print("shape2:", z_mc.shape, negative.shape, positive.shape)
         # prediction_loss = tf.losses.mean_squared_error(value_input, v_mc)
         total_loss = contrast_loss
@@ -183,12 +185,14 @@ def build_train_contrast(make_obs_ph, model_func, num_actions, optimizer, grad_n
             optimize_expr_contrast_with_prediction = optimizer.minimize(total_loss, var_list=model_func_vars)
         # Create callable functions
         # update_target_fn will be called periodically to copy Q network to target Q network
-        z_var_summary = tf.summary.scalar("z_var", tf.reduce_mean(tf.reduce_std(z_mc, axis=1)))
+        z_var_summary = tf.summary.scalar("z_var", tf.reduce_mean(tf.math.reduce_std(z_mc, axis=1)))
+        negative_summary = tf.summary.scalar("negative", tf.reduce_mean(tf.reduce_mean(negative)))
+        positive_summary = tf.summary.scalar("positive", tf.reduce_mean(tf.reduce_mean(positive)))
         contrast_loss_summary = tf.summary.scalar("contrast loss", tf.reduce_mean(contrast_loss))
         # prediction_loss_summary = tf.summary.scalar("prediction loss", tf.reduce_mean(prediction_loss))
         total_loss_summary = tf.summary.scalar("total loss", tf.reduce_mean(total_loss))
 
-        summaries = [z_var_summary, contrast_loss_summary, total_loss_summary]
+        summaries = [z_var_summary, negative_summary, positive_summary, contrast_loss_summary, total_loss_summary]
         summary = tf.summary.merge(summaries)
 
         train = U.function(

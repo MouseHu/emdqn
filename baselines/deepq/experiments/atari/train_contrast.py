@@ -56,7 +56,7 @@ def parse_args():
     parser.add_argument("--target-update-freq", type=int, default=10000,
                         help="number of iterations between every target network update")
     parser.add_argument("--knn", type=int, default=4, help="number of k nearest neighbours")
-    parser.add_argument("--end_training", type=int, default=5e5, help="number of pretrain steps")
+    parser.add_argument("--end_training", type=int, default=2.5e5, help="number of pretrain steps")
     # Bells and whistles
     # Checkpointing
     parser.add_argument("--save-dir", type=str, default=None,
@@ -181,9 +181,10 @@ if __name__ == '__main__':
             './results/result_%s_mfvae_%s' % (args.env, args.comment), 'w+')
 
 
-        def act(ob, act_noise, stochastic=0, update_eps=-1):
+        def act(ob, stochastic=0, update_eps=-1):
             global eps
-            z = z_func(ob, act_noise)
+            z = z_func(ob)
+            z = np.array(z).reshape((args.latent_dim))
             if update_eps >= 0:
                 eps = update_eps
             if np.random.random() < max(stochastic, eps):
@@ -194,6 +195,8 @@ if __name__ == '__main__':
                 # print(eps,stochastic,np.random.rand(0, 1))
                 q = []
                 for a in range(env.action_space.n):
+                    #print(np.array(z).shape)
+                    
                     q.append(ec_buffer[a].knn_value(z, args.knn))
                 # print("ec",eps,np.argmax(q),q)
                 return np.argmax(q), z
@@ -213,7 +216,7 @@ if __name__ == '__main__':
                 # z = np.dot(rp, s.flatten())
                 Rtd = r + 0.99 * Rtd
                 Rtds.append(Rtd)
-                z = z.reshape((args.latent_dim))
+                z = np.array(z).reshape((args.latent_dim))
                 qd = ec_buffer[a].peek(z, Rtd, True)
                 if qd == None:  # new action
                     ec_buffer[a].add(z, Rtd)
@@ -261,11 +264,8 @@ if __name__ == '__main__':
             (approximate_num_iters / 5, 0.01)
         ], outside_value=0.01)
 
-        if args.prioritized:
-            replay_buffer = PrioritizedReplayBuffer(args.replay_buffer_size, args.prioritized_alpha)
-            beta_schedule = LinearSchedule(approximate_num_iters, initial_p=args.prioritized_beta0, final_p=1.0)
-        else:
-            replay_buffer = ReplayBufferContra(args.replay_buffer_size)
+
+        replay_buffer = ReplayBufferContra(args.replay_buffer_size)
 
         U.initialize()
         num_iters = 0
@@ -286,8 +286,7 @@ if __name__ == '__main__':
             num_iters += 1
             # Take action and store transition in the replay buffer.
             action, z = \
-                act(np.array(obs)[None], update_eps=exploration.value(num_iters),
-                    act_noise=np.random.randn(1, args.latent_dim))
+                act(np.array(obs)[None], update_eps=exploration.value(num_iters))
             new_obs, rew, done, info = env.step(action)
             # EMDQN
             sequence.append([obs, z, action, np.clip(rew, -1, 1)])
@@ -307,7 +306,7 @@ if __name__ == '__main__':
                     tf_writer.add_summary(summary, global_step=info["steps"])
                     # tf_writer.add_summary(summary,global_step=info["steps"])
                 # Update target network.
-            if num_iters % args.target_update_freq == 0:  # NOTE: why not 10000?
+            if num_iters % args.target_update_freq == 0 and num_iters>args.end_training+10000:  # NOTE: why not 10000?
                 update_kdtree()
 
             if start_time is not None:
@@ -352,8 +351,3 @@ if __name__ == '__main__':
                 logger.log("ETA: " + pretty_eta(int(steps_left / fps_estimate)))
                 logger.log()
             tf_writer.add_summary(value_summary, global_step=info["steps"])
-
-            if num_iters % 1000000 == 999999:
-                avg_score = test_agent()
-                tfout.write("test: %.2f\n" % avg_score)
-                tfout.flush()

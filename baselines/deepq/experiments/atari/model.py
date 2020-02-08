@@ -80,7 +80,7 @@ def contrastive_model(img_in, num_actions, scope, reuse=False):
             out = layers.convolution2d(out, num_outputs=64, kernel_size=3, stride=1, activation_fn=tf.nn.relu)
         out = layers.flatten(out)
 
-        z = layers.fully_connected(out, num_outputs=32, activation_fn=tf.nn.relu)
+        z = layers.fully_connected(out, num_outputs=32, activation_fn=tf.nn.tanh)
         normed_z = z / tf.norm(z, axis=1,keepdims=True)
         print("normed_z:",normed_z.shape)
         with tf.variable_scope("action_value"):

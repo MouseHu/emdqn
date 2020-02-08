@@ -69,7 +69,7 @@ class ReplayBuffer(object):
 
 
 class ReplayBufferContra(object):
-    def __init__(self, size):
+    def __init__(self, size,K=10):
         """Create Prioritized Replay buffer.
 
         Parameters
@@ -81,6 +81,7 @@ class ReplayBufferContra(object):
         self._storage = []
         self._maxsize = size
         self._next_idx = 0
+        self._k=10
 
     @staticmethod
     def is_in_array(element, array):
@@ -113,17 +114,18 @@ class ReplayBufferContra(object):
         negidxes = []
         for i in range(len(idxes)):
             exclude = [(idxes[i] - 1) % self._maxsize, idxes[i], (idxes[i] + 1) % self._maxsize]
-            exclude_state = [self._encode_observation(idx) for idx in exclude]
-
-            tmp = random.randint(0, len(self) - 2)
+            exclude = [x for x in exclude if x<len(self)]
+            exclude_state = [self._storage[idx][0] for idx in exclude]
+            for x in range(self._k):
+                tmp = random.randint(0, len(self)-1)
 
             # print(tmp in exclude)
             # print(np.array(exclude_state).shape)
             # print(self._encode_observation(tmp).shape)
             # print(self._encode_observation(tmp) in exclude_state)
-            while tmp in exclude or self.is_in_array(self._encode_observation(tmp), exclude_state):
-                tmp = random.randint(0, self.num_in_buffer - 2)
-            negidxes.append(tmp)
+                while tmp in exclude or self.is_in_array(self._storage[tmp][0], exclude_state):
+                    tmp = random.randint(0, len(self)-1)
+                negidxes.append(tmp)
 
         obses_t, actions, rewards, obses_tp1, dones, obses_neg = [], [], [], [], [], []
         for i in idxes:
@@ -134,7 +136,7 @@ class ReplayBufferContra(object):
             rewards.append(reward)
             obses_tp1.append(np.array(obs_tp1, copy=False))
             dones.append(done)
-        self.switch_first_half(obses_t, obses_tp1, len(idxes))
+        self.switch_first_half(np.array(obses_t), np.array(obses_tp1), len(idxes))
         for i in negidxes:
             data = self._storage[i]
             obs_t, action, reward, obs_tp1, done = data
