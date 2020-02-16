@@ -16,6 +16,7 @@ temp[1:] = temp[0:-1]
 temp[0] = cwd
 print(sys.path)
 
+from baselines.deepq.dqn_utils import *
 import baselines.common.tf_util as U
 import datetime
 from baselines import logger
@@ -37,6 +38,7 @@ from baselines.common.atari_wrappers_deprecated import wrap_dqn
 from baselines.common.azure_utils import Container
 from baselines.deepq.experiments.atari.model import contrastive_model
 from baselines.deepq.experiments.atari.lru_knn import LRU_KNN
+from baselines.common.atari_lib import create_atari_environment
 
 
 def parse_args():
@@ -58,6 +60,9 @@ def parse_args():
                         help="number of iterations between every target network update")
     parser.add_argument("--knn", type=int, default=4, help="number of k nearest neighbours")
     parser.add_argument("--end_training", type=int, default=2.5e5, help="number of pretrain steps")
+    parser.add_argument('--map_config', type=str,
+                        help='The map and config you want to run in MonsterKong.',
+                        default='./baselines/ple/configs/config_ppo_mk.py')
     # Bells and whistles
     # Checkpointing
     parser.add_argument("--save-dir", type=str, default=None,
@@ -149,7 +154,29 @@ if __name__ == '__main__':
     else:
         container = None
     # Create and seed the env.
-    env, monitored_env = make_env(args.env)
+    # env, monitored_env = make_env(args.env)
+    if args.env == "MK":
+
+        import imp
+
+        try:
+            map_config_file = args.map_config
+            map_config = imp.load_source('map_config', map_config_file).map_config
+        except Exception as e:
+            sys.exit(str(e) + '\n'
+                     + 'map_config import error. File not exist or map_config not specified')
+        from gym.envs.registration import register
+
+        register(
+            id='MonsterKong-v0',
+            entry_point='ple.gym_env.monsterkong:MonsterKongEnv',
+            kwargs={'map_config': map_config},
+        )
+
+        env = gym.make('MonsterKong-v0')
+        env = ProcessFrame(env)
+    else:
+        env = create_atari_environment(args.env, sticky_actions=False)
     if args.seed > 0:
         set_global_seeds(args.seed)
         env.unwrapped.seed(args.seed)
@@ -274,7 +301,7 @@ if __name__ == '__main__':
         state = maybe_load_model(savedir, container)
         if state is not None:
             num_iters, replay_buffer = state["num_iters"], state["replay_buffer"],
-            monitored_env.set_state(state["monitor_state"])
+            # monitored_env.set_state(state["monitor_state"])
 
         start_time, start_steps = None, None
         steps_per_iter = RunningAvg(0.999)
@@ -342,11 +369,11 @@ if __name__ == '__main__':
                 logger.record_tabular("steps", info["steps"])
                 logger.record_tabular("iters", num_iters)
                 logger.record_tabular("episodes", len(info["rewards"]))
-                logger.record_tabular("reward (100 epi mean)", np.mean(episodic_return[-return_mean+1:-1]))
-                value_summary.value[0].simple_value = np.mean(episodic_return[-return_mean+1:-1])
+                logger.record_tabular("reward (100 epi mean)", np.mean(episodic_return[-return_mean + 1:-1]))
+                value_summary.value[0].simple_value = np.mean(episodic_return[-return_mean + 1:-1])
                 if len(info["rewards"]) > 1:
-                    np.mean(np.mean(episodic_return[-return_mean+1:-1]))
-                    tfout.write("%d, %.2f\n" % (info["steps"], int(np.mean(episodic_return[-return_mean+1:-1]))))
+                    np.mean(np.mean(episodic_return[-return_mean + 1:-1]))
+                    tfout.write("%d, %.2f\n" % (info["steps"], int(np.mean(episodic_return[-return_mean + 1:-1]))))
                     tfout.flush()
                 logger.record_tabular("exploration", exploration.value(num_iters))
                 fps_estimate = (float(steps_per_iter) / (float(iteration_time_est) + 1e-6)

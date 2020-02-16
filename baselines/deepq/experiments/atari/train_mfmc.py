@@ -217,7 +217,7 @@ if __name__ == '__main__':
                 q = []
                 for a in range(env.action_space.n):
                     #print(z[0].shape,h[0].shape)
-                    q_value, found = ec_buffer[a].act_value(z[0][0], h[0][0], args.knn)
+                    q_value, found = ec_buffer[a].act_value(z[0][0], h[0][0], args.knn,verbose=True)
                     q.append(q_value)
                     if found:
                         print("found")
