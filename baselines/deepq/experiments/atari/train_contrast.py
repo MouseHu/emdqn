@@ -49,6 +49,7 @@ def parse_args():
     parser.add_argument("--lr", type=float, default=1e-4, help="learning rate for Adam optimizer")
     parser.add_argument("--num-steps", type=int, default=int(1e7),
                         help="total number of steps to run the environment for")
+    parser.add_argument("--negative-samples", type=int, default=10, help="numbers for negative samples")
     parser.add_argument("--batch-size", type=int, default=128,
                         help="number of transitions to optimize at the same time")
     parser.add_argument("--learning-freq", type=int, default=4,
@@ -299,13 +300,15 @@ if __name__ == '__main__':
                 obs = env.reset()
                 episodic_return.append(0.0)
 
-                if num_iters < args.end_training or args.learning:
-                    # train vae
-                    obses_t, actions, rewards, obses_tp1, dones, obses_neg = replay_buffer.sample(args.batch_size)
-                    inputs = [[1], obses_t, obses_tp1, obses_neg]
-                    total_errors, summary = train(*inputs)
-                    tf_writer.add_summary(summary, global_step=info["steps"])
-                    # tf_writer.add_summary(summary,global_step=info["steps"])
+            if num_iters % args.learning_freq == 0 and len(replay_buffer) > args.batch_size * (
+                    args.negative_samples + 1) and (
+                    num_iters < args.end_training or args.learning):
+                # train vae
+                obses_t, actions, rewards, obses_tp1, dones, obses_neg = replay_buffer.sample(args.batch_size)
+                inputs = [[1], obses_t, obses_tp1, obses_neg]
+                total_errors, summary = train(*inputs)
+                tf_writer.add_summary(summary, global_step=info["steps"])
+                # tf_writer.add_summary(summary,global_step=info["steps"])
                 # Update target network.
             if num_iters % args.target_update_freq == 0 and num_iters > args.end_training + 10000:  # NOTE: why not 10000?
                 update_kdtree()
@@ -330,7 +333,7 @@ if __name__ == '__main__':
                 break
 
             if done:
-                return_mean = max(len(episodic_return), 100)
+                return_mean = max(len(episodic_return) - 1, 100)
                 sequence = []
                 steps_left = args.num_steps - info["steps"]
                 completion = np.round(info["steps"] / args.num_steps, 2)
@@ -339,11 +342,11 @@ if __name__ == '__main__':
                 logger.record_tabular("steps", info["steps"])
                 logger.record_tabular("iters", num_iters)
                 logger.record_tabular("episodes", len(info["rewards"]))
-                logger.record_tabular("reward (100 epi mean)", np.mean(episodic_return[-return_mean:]))
-                value_summary.value[0].simple_value = np.mean(episodic_return[-return_mean:])
+                logger.record_tabular("reward (100 epi mean)", np.mean(episodic_return[-return_mean+1:-1]))
+                value_summary.value[0].simple_value = np.mean(episodic_return[-return_mean+1:-1])
                 if len(info["rewards"]) > 1:
-                    np.mean(info["rewards"][-100:])
-                    tfout.write("%d, %.2f\n" % (info["steps"], np.mean(episodic_return[-return_mean:])))
+                    np.mean(np.mean(episodic_return[-return_mean+1:-1]))
+                    tfout.write("%d, %.2f\n" % (info["steps"], int(np.mean(episodic_return[-return_mean+1:-1]))))
                     tfout.flush()
                 logger.record_tabular("exploration", exploration.value(num_iters))
                 fps_estimate = (float(steps_per_iter) / (float(iteration_time_est) + 1e-6)
