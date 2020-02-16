@@ -53,7 +53,7 @@ class LRU_KNN_MC(object):
         np.save(os.path.join(self.bufpath, 'q_values_decay_%d' % action), self.q_values_decay[:self.curr_capacity])
         np.save(os.path.join(self.bufpath, 'lru_%d' % action), self.lru[:self.curr_capacity])
 
-    def peek(self, h, value_decay, modify):
+    def peek(self, h, value_decay, modify,verbose=False):
         if self.curr_capacity == 0 or self.build_tree == False:
             return None
 
@@ -70,7 +70,9 @@ class LRU_KNN_MC(object):
                     self.q_values_decay[ind] = value_decay
             return self.q_values_decay[ind]
         # print self.states[ind], key
-
+        else:
+            if verbose:
+                print(dist[0])
         return None
 
     def sample_keys(self, avoids, batch_size):
@@ -84,8 +86,8 @@ class LRU_KNN_MC(object):
                 idxes.append(id)
         return self.states[idxes]
 
-    def act_value(self, key, h, knn):
-        value = self.peek(h, None, modify=False)
+    def act_value(self, key, h, knn,verbose=True):
+        value = self.peek(h, None, modify=False,verbose=verbose)
         if value:
             return value, True
         else:

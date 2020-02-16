@@ -75,11 +75,12 @@ class LRU_KNN:
             return 0.0, 0.0
 
         dist, ind = self.tree.query([key], k=knn)
-
+        coeff = np.exp(dist[0])
+        coeff = coeff/np.sum(coeff)
         value = 0.0
         value_decay = 0.0
-        for index in ind[0]:
-            value_decay += self.q_values_decay[index]
+        for j,index in enumerate(ind[0]):
+            value_decay += self.q_values_decay[index]*coeff[j]
             self.lru[index] = self.tm
             self.tm += 0.01
 
