@@ -1,1 +1,1 @@
-from ple.games.monsterkong import MonsterKong
+from baselines.ple.games.monsterkong import MonsterKong

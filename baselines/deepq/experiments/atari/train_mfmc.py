@@ -16,10 +16,12 @@ temp[1:] = temp[0:-1]
 temp[0] = cwd
 print(sys.path)
 
+from baselines.deepq.dqn_utils import *
 import baselines.common.tf_util as U
 import datetime
 from baselines import logger
 from baselines import deepq
+from baselines.common.atari_lib import create_atari_environment
 from baselines.deepq.replay_buffer import ReplayBufferHash, PrioritizedReplayBuffer
 from baselines.common.misc_util import (
     boolean_flag,
@@ -166,7 +168,28 @@ if __name__ == '__main__':
     else:
         container = None
     # Create and seed the env.
-    env, monitored_env = make_env(args.env)
+    if args.env == "MK":
+
+        import imp
+
+        try:
+            map_config_file = args.map_config
+            map_config = imp.load_source('map_config', map_config_file).map_config
+        except Exception as e:
+            sys.exit(str(e) + '\n'
+                     + 'map_config import error. File not exist or map_config not specified')
+        from gym.envs.registration import register
+
+        register(
+            id='MonsterKong-v0',
+            entry_point='baselines.ple.gym_env.monsterkong:MonsterKongEnv',
+            kwargs={'map_config': map_config},
+        )
+
+        env = gym.make('MonsterKong-v0')
+        env = ProcessFrame(env)
+    else:
+        env = create_atari_environment(args.env, sticky_actions=False)
     if args.seed > 0:
         set_global_seeds(args.seed)
         env.unwrapped.seed(args.seed)
@@ -307,7 +330,7 @@ if __name__ == '__main__':
         state = maybe_load_model(savedir, container)
         if state is not None:
             num_iters, replay_buffer = state["num_iters"], state["replay_buffer"],
-            monitored_env.set_state(state["monitor_state"])
+            # monitored_env.set_state(state["monitor_state"])
 
         start_time, start_steps = None, None
         steps_per_iter = RunningAvg(0.999)

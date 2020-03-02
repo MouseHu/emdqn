@@ -64,9 +64,22 @@ def ib_model(img_in, noise, num_actions, scope, reuse=False, decoder="DECONV"):
         return q_func, q_func_deterministic, v_mean, v_logvar, z_mean, z_logvar, reconstruct
 
 
+def rp_model(img_in, num_actions, scope, reuse=False):
+    """As described in https://storage.googleapis.com/deepmind-data/assets/papers/DeepMindNature14236Paper.pdf"""
+    img_size = img_in.shape[1]
+    print("img shape", img_in.shape)
+    with tf.variable_scope(scope, reuse=reuse):
+        out = img_in
+        out = layers.flatten(out)
+        out = layers.fully_connected(out, num_outputs=32, activation_fn=None,
+                                     weights_initializer=tf.random_normal_initializer(0, 1))
+        return out, None
+
+
 def contrastive_model(img_in, num_actions, scope, reuse=False):
     """As described in https://storage.googleapis.com/deepmind-data/assets/papers/DeepMindNature14236Paper.pdf"""
     img_size = img_in.shape[1]
+    print("img shape", img_in.shape)
     with tf.variable_scope(scope, reuse=reuse):
         out = img_in
         # coordinate = np.meshgrid()
@@ -81,8 +94,8 @@ def contrastive_model(img_in, num_actions, scope, reuse=False):
         out = layers.flatten(out)
 
         z = layers.fully_connected(out, num_outputs=32, activation_fn=tf.nn.tanh)
-        normed_z = z / tf.norm(z, axis=1,keepdims=True)
-        print("normed_z:",normed_z.shape)
+        normed_z = z / tf.norm(z, axis=1, keepdims=True)
+        print("normed_z:", normed_z.shape)
         with tf.variable_scope("action_value"):
             v_h = layers.fully_connected(z, num_outputs=512, activation_fn=tf.nn.relu)
             v = layers.fully_connected(v_h, num_outputs=1, activation_fn=None)

@@ -4,6 +4,9 @@ import gym
 import tensorflow as tf
 import numpy as np
 import random
+import imageio
+import os
+import cv2
 
 
 def running_mean(x, N):
@@ -481,6 +484,75 @@ class ProcessFrame(gym.Wrapper):
 
     def reset(self):
         return _process_frame(self.env.reset())
+
+
+class GIFRecorder(gym.Wrapper):
+    def __init__(self, video_path, record_video=False, env=None):
+        super(GIFRecorder, self).__init__(env)
+        self.record = record_video
+        self.video_path = video_path
+        self.images = []
+        self.video_number = 0
+        self.returns = 0
+        self.num_steps = 0
+        if not os.path.isdir(video_path):
+            os.mkdir(video_path)
+
+    def step(self, action):
+        obs, reward, done, info = self.env.step(action)
+        if self.record:
+            # print(obs.shape)
+            self.images.append(np.swapaxes(obs, 0, 1))
+            self.returns += reward * 0.99 ** (self.num_steps)
+            self.num_steps += 1
+            if done:
+                imageio.mimsave(self.video_path + "/{}_{}.gif".format(self.video_number, self.returns), self.images)
+                self.images = []
+                self.returns = 0
+                self.num_steps = 0
+                self.video_number += 1
+                self.record = False
+        return obs, reward, done, info
+
+
+class VideoRecorder(gym.Wrapper):
+    def __init__(self, video_path, record_video=False, env=None):
+        super(VideoRecorder, self).__init__(env)
+        self.record = record_video
+        self.video_path = video_path
+        self.images = []
+        self.video_number = 0
+        self.returns = 0
+        self.num_steps = 0
+        self.fourcc = cv2.VideoWriter_fourcc(*'XVID')
+        self.writer = None
+        if not os.path.isdir(video_path):
+            os.mkdir(video_path)
+
+    def step(self, action):
+        obs, reward, done, info = self.env.step(action)
+        if self.record:
+            # print(obs.shape)
+            self.images.append(np.swapaxes(obs, 0, 1))
+            self.returns += reward * 0.99 ** (self.num_steps)
+            self.num_steps += 1
+            if done:
+                # print(self.images[0].shape)
+                height, width = self.images[0].shape[0:2]
+                self.writer = cv2.VideoWriter(self.video_path + "/{}_{}.avi".format(self.video_number, self.returns),
+                                              self.fourcc, 20.0, (height, width))
+                for frame in self.images:
+                    self.writer.write(np.tile(frame,(1,1,3)))
+                self.writer.release()
+                # cv2.destroyAllWindows()
+                self.writer = None
+                # imageio.mimsave(, self.images)
+                self.images = []
+                self.returns = 0
+                self.num_steps = 0
+                self.video_number += 1
+                self.record = False
+        return obs, reward, done, info
 
 
 class NoOpWrapperMK(gym.Wrapper):

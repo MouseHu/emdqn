@@ -5,7 +5,7 @@ import os
 import tensorflow as tf
 import tempfile
 import time
-
+import datetime
 import sys
 
 cwd = os.getcwd()
@@ -31,13 +31,15 @@ from baselines.common.misc_util import (
     SimpleMonitor
 )
 from baselines.common.schedules import LinearSchedule, PiecewiseSchedule
+from baselines.deepq.dqn_utils import *
 # when updating this to non-deperecated ones, it is important to
 # copy over LazyFrames
 from baselines.common.atari_wrappers_deprecated import wrap_dqn
 from baselines.common.azure_utils import Container
-from model import model, dueling_model
-
-from lru_knn import LRU_KNN
+# from model import
+from baselines.deepq.experiments.atari.model import model, dueling_model
+from baselines.deepq.experiments.atari.lru_knn import LRU_KNN
+# from lru_knn import LRU_KNN
 
 
 def parse_args():
@@ -46,9 +48,9 @@ def parse_args():
     parser.add_argument("--env", type=str, default="Pong", help="name of the game")
     parser.add_argument("--seed", type=int, default=42, help="which seed to use")
     # Core DQN parameters
-    parser.add_argument("--replay-buffer-size", type=int, default=int(1e6), help="replay buffer size")
+    parser.add_argument("--replay-buffer-size", type=int, default=int(1e5), help="replay buffer size")
     parser.add_argument("--lr", type=float, default=1e-4, help="learning rate for Adam optimizer")
-    parser.add_argument("--num-steps", type=int, default=int(1e7),
+    parser.add_argument("--num-steps", type=int, default=int(5e6),
                         help="total number of steps to run the environment for")
     parser.add_argument("--batch-size", type=int, default=32, help="number of transitions to optimize at the same time")
     parser.add_argument("--learning-freq", type=int, default=4,
@@ -65,7 +67,11 @@ def parse_args():
                         help="initial value of beta parameters for prioritized replay")
     parser.add_argument("--prioritized-eps", type=float, default=1e-6,
                         help="eps parameter for prioritized replay buffer")
+    parser.add_argument("--comment", type=str, default=datetime.datetime.now().strftime("%I-%M_%B-%d-%Y"),
+                        help="discription for this experiment")
     # Checkpointing
+    parser.add_argument("--log_dir", type=str, default="./tflogs",
+                        help="directory in which training state and model should be saved.")
     parser.add_argument("--save-dir", type=str, default=None,
                         help="directory in which training state and model should be saved.")
     parser.add_argument("--save-azure-container", type=str, default=None,
@@ -74,6 +80,9 @@ def parse_args():
                         help="save model once every time this many iterations are completed")
     boolean_flag(parser, "load-on-start", default=True,
                  help="if true and model was previously saved then training will be resumed")
+    parser.add_argument('--map_config', type=str,
+                        help='The map and config you want to run in MonsterKong.',
+                        default='../../../ple/configs/config_ppo_mk_large.py')
     # EMDQN
     boolean_flag(parser, "emdqn", default=False, help="whether or not to use emdqn")
     return parser.parse_args()
@@ -147,7 +156,42 @@ if __name__ == '__main__':
     else:
         container = None
     # Create and seed the env.
-    env, monitored_env = make_env(args.env)
+    if args.env == "MK":
+
+        import imp
+
+        try:
+            map_config_file = args.map_config
+            map_config = imp.load_source('map_config', map_config_file).map_config
+        except Exception as e:
+            sys.exit(str(e) + '\n'
+                     + 'map_config import error. File not exist or map_config not specified')
+        from gym.envs.registration import register
+
+        register(
+            id='MonsterKong-v0',
+            entry_point='baselines.ple.gym_env.monsterkong:MonsterKongEnv',
+            kwargs={'map_config': map_config},
+        )
+
+        env = gym.make('MonsterKong-v0')
+        env = ProcessFrame(env)
+        env = SimpleMonitor(env)
+    else:
+        env, monitored_env = make_env(args.env)
+
+    subdir = (datetime.datetime.now()).strftime("%m-%d-%Y-%H:%M:%S") + " " + args.comment
+    tf_writer = tf.summary.FileWriter(os.path.join(args.log_dir, subdir), tf.get_default_graph())
+    value_summary = tf.Summary()
+    qec_summary = tf.Summary()
+    value_summary.value.add(tag='discount_reward_mean')
+    # value_summary.value.add(tag='non_discount_reward_mean')
+    # value_summary.value.add(tag='episode')
+
+    qec_summary.value.add(tag='qec_mean')
+    qec_summary.value.add(tag='qec_fount')
+    # value_summary.value.add(tag='steps')
+    # value_summary.value.add(tag='episodes')
     if args.seed > 0:
         set_global_seeds(args.seed)
         env.unwrapped.seed(args.seed)
@@ -158,7 +202,7 @@ if __name__ == '__main__':
             ec_buffer = []
             buffer_size = 5000000
             latent_dim = 4
-            input_dim = 84 * 84 * 4
+            input_dim = 220 * 220
             for i in range(env.action_space.n):
                 ec_buffer.append(LRU_KNN(buffer_size, latent_dim, 'game'))
             rng = np.random.RandomState(123456)  # deterministic, erase 123456 for stochastic
@@ -232,7 +276,7 @@ if __name__ == '__main__':
             replay_buffer = PrioritizedReplayBuffer(args.replay_buffer_size, args.prioritized_alpha)
             beta_schedule = LinearSchedule(approximate_num_iters, initial_p=args.prioritized_beta0, final_p=1.0)
         else:
-            replay_buffer = ReplayBuffer(args.replay_buffer_size)
+            replay_buffer = ReplayBuffer(args.replay_buffer_size,frame_history_len=1)
 
         U.initialize()
         update_target()
@@ -257,8 +301,10 @@ if __name__ == '__main__':
             new_obs, rew, done, info = env.step(action)
             if emdqn:
                 sequence.append([np.array(obs), action, np.clip(rew, -1, 1), ])
-
-            replay_buffer.add(obs, action, rew, new_obs, float(done))
+            if args.prioritized:
+                replay_buffer.add(obs, action, rew, new_obs, float(done))
+            else:
+                replay_buffer.add_batch([obs], [action], [rew], [float(done)])
             obs = new_obs
             if done:
                 # EMDQN
@@ -274,7 +320,7 @@ if __name__ == '__main__':
                     experience = replay_buffer.sample(args.batch_size, beta=beta_schedule.value(num_iters))
                     (obses_t, actions, rewards, obses_tp1, dones, weights, batch_idxes) = experience
                 else:
-                    obses_t, actions, rewards, obses_tp1, dones = replay_buffer.sample(args.batch_size)
+                    obses_t, actions, rewards, obses_tp1, dones, _ = replay_buffer.sample(args.batch_size)
                     weights = np.ones_like(rewards)
                 # EMDQN
                 if emdqn:
@@ -291,13 +337,18 @@ if __name__ == '__main__':
                     if update_counter % 2000 == 1999:
                         print("qec_mean:", np.mean(qecwatch))
                         print("qec_fount: %.2f" % (1.0 * qec_found / args.batch_size / update_counter))
+                        qec_summary.value[0].simple_value = np.mean(qecwatch)
+                        qec_summary.value[1].simple_value = 1.0 * qec_found / args.batch_size / update_counter
                         qecwatch = []
+                        tf_writer.add_summary(qec_summary, global_step=num_iters)
+
 
                 # Minimize the error in Bellman's equation and compute TD-error
                 if emdqn:
-                    td_errors, qec_errors = train(obses_t, actions, rewards, obses_tp1, dones, weights, qec_input)
+                    td_errors, qec_errors,summary = train(obses_t, actions, rewards, obses_tp1, dones, weights, qec_input)
                 else:
-                    td_errors = train(obses_t, actions, rewards, obses_tp1, dones, weights)
+                    td_errors,summary = train(obses_t, actions, rewards, obses_tp1, dones, weights)
+                tf_writer.add_summary(summary, global_step=num_iters)
                 # Update the priorities in the replay buffer
                 if args.prioritized:
                     new_priorities = np.abs(td_errors) + args.prioritized_eps
@@ -338,6 +389,8 @@ if __name__ == '__main__':
                 if len(info["rewards"]) > 1:
                     tfout.write("%d, %.2f\n" % (info["steps"], np.mean(info["rewards"][-100:])))
                     tfout.flush()
+                value_summary.value[0].simple_value = np.mean(info["rewards"][-100:])
+
                 logger.record_tabular("exploration", exploration.value(num_iters))
                 if args.prioritized:
                     logger.record_tabular("max priority", replay_buffer._max_priority)
@@ -347,6 +400,7 @@ if __name__ == '__main__':
                 logger.log()
                 logger.log("ETA: " + pretty_eta(int(steps_left / fps_estimate)))
                 logger.log()
+                tf_writer.add_summary(value_summary, global_step=num_iters)
 
             # if num_iters % 1000000 == 999999:
             #    avg_score = test_agent()

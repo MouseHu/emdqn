@@ -6,12 +6,13 @@ import gc
 
 
 # each action -> a lru_knn buffer
-class LRU_KNN:
-    def __init__(self, capacity, z_dim, env_name):
+class LRU_KNN_UCB(object):
+    def __init__(self, capacity, z_dim, env_name, mode="mean"):
         self.env_name = env_name
         self.capacity = capacity
         self.states = np.empty((capacity, z_dim), dtype=np.float32)
         self.q_values_decay = np.zeros(capacity)
+        self.count = np.zeros(capacity)
         self.lru = np.zeros(capacity)
         self.curr_capacity = 0
         self.tm = 0.0
@@ -22,6 +23,7 @@ class LRU_KNN:
         self.bufpath = './buffer/%s' % self.env_name
         self.build_tree_times = 0
         self.build_tree = False
+        self.mode = mode
 
     def load(self, action):
         try:
@@ -51,49 +53,57 @@ class LRU_KNN:
 
     def peek(self, key, value_decay, modify):
         if self.curr_capacity == 0 or self.build_tree == False:
-            return None
+            return None, None
 
         dist, ind = self.tree.query([key], k=1)
         ind = ind[0][0]
 
         # if self.states[ind] == key:
         # if np.allclose(self.states[ind], key):
-        if np.allclose(self.states[ind], key, atol=1e-08):
+        # if np.allclose(self.states[ind], key, atol=1e-08):
+        if dist[0][0] < 1e-7:
             self.lru[ind] = self.tm
             self.tm += 0.01
             if modify:
-                if value_decay > self.q_values_decay[ind]:
-                    self.q_values_decay[ind] = value_decay
-            return self.q_values_decay[ind]
+                if self.mode == "max":
+                    if value_decay > self.q_values_decay[ind]:
+                        self.q_values_decay[ind] = value_decay
+                elif self.mode == "mean":
+                    self.q_values_decay[ind] = (value_decay + self.q_values_decay[ind] * self.count[ind]) / (
+                            self.count[ind] + 1)
+                self.count[ind] += 1
+            return self.q_values_decay[ind], self.count[ind]
         # print self.states[ind], key
 
-        return None
+        return None, None
 
     def knn_value(self, key, knn):
         knn = min(self.curr_capacity, knn)
         if self.curr_capacity == 0 or self.build_tree == False:
-            return 0.0, 0.0
+            return 0.0, 1.0
 
         dist, ind = self.tree.query([key], k=knn)
         coeff = np.exp(dist[0])
         coeff = coeff / np.sum(coeff)
         value = 0.0
         value_decay = 0.0
+        count = 0
         for j, index in enumerate(ind[0]):
             value_decay += self.q_values_decay[index] * coeff[j]
+            count += self.count[index] * coeff[j]
             self.lru[index] = self.tm
             self.tm += 0.01
 
         q_decay = value_decay
 
-        return q_decay
+        return q_decay, count
 
     def act_value(self, key, knn):
-        exact_reference = self.peek(key, 0, modify=False)
+        exact_reference, count = self.peek(key, 0, modify=False)
         if exact_reference:
-            return exact_reference, True
+            return exact_reference, np.sqrt(count), True
         else:
-            return self.knn_value(key, knn), False
+            return self.knn_value(key, knn) + (False,)
 
     def add(self, key, value_decay):
         if self.curr_capacity >= self.capacity:
@@ -102,10 +112,12 @@ class LRU_KNN:
             self.states[old_index] = key
             self.q_values_decay[old_index] = value_decay
             self.lru[old_index] = self.tm
+            self.count[old_index] = 2
         else:
             self.states[self.curr_capacity] = key
             self.q_values_decay[self.curr_capacity] = value_decay
             self.lru[self.curr_capacity] = self.tm
+            self.count[self.curr_capacity] = 2
             self.curr_capacity += 1
         self.tm += 0.01
         # self.addnum += 1
@@ -125,6 +137,8 @@ class LRU_KNN:
         #    gc.collect()
 
     def update_kdtree(self):
+        # if self.curr_capacity == 0:
+        #     return
         if self.build_tree:
             del self.tree
         # print(self.curr_capacity)

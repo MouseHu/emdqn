@@ -216,12 +216,18 @@ def build_train(make_obs_ph, q_func, num_actions, optimizer, grad_norm_clipping=
 
         # compute the error (potentially clipped)
         td_error = q_t_selected - tf.stop_gradient(q_t_selected_target)
+        td_summary = tf.summary.scalar("td error", tf.reduce_mean(td_error))
         # EMDQN
         if emdqn:
             qec_error = q_t_selected - tf.stop_gradient(qec_input)
             errors = U.huber_loss(td_error) + 0.1 * U.huber_loss(qec_error)
+            qec_summary=tf.summary.scalar("qec error",tf.reduce_mean(U.huber_loss(qec_error)))
+            total_summary = tf.summary.scalar("total error", tf.reduce_mean(errors))
+            summary = tf.summary.merge([td_summary,qec_summary,total_summary])
         else:
             errors = U.huber_loss(td_error)
+            total_summary = tf.summary.scalar("total error", tf.reduce_mean(errors))
+            summary = tf.summary.merge([td_summary, total_summary])
 
         weighted_error = tf.reduce_mean(importance_weights_ph * errors)
         # compute optimization op (potentially with gradient clipping)
@@ -253,7 +259,7 @@ def build_train(make_obs_ph, q_func, num_actions, optimizer, grad_norm_clipping=
                     importance_weights_ph,
                     qec_input
                 ],
-                outputs=[td_error, qec_error],
+                outputs=[td_error, qec_error,summary],
                 updates=[optimize_expr]
             )
         else:
@@ -266,7 +272,7 @@ def build_train(make_obs_ph, q_func, num_actions, optimizer, grad_norm_clipping=
                     done_mask_ph,
                     importance_weights_ph
                 ],
-                outputs=td_error,
+                outputs=[td_error,summary],
                 updates=[optimize_expr]
             )
         get_q_t_selected = U.function(

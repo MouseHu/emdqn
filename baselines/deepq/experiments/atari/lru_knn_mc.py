@@ -62,7 +62,8 @@ class LRU_KNN_MC(object):
 
         # if self.states[ind] == key:
         # if np.allclose(self.states[ind], key):
-        if np.allclose(self.hashes[ind], h, atol=1e-08):
+        # if np.allclose(self.hashes[ind], h, atol=1e-08):
+        if ind[0][0]<1e-7:
             self.lru[ind] = self.tm
             self.tm += 0.01
             if modify:
