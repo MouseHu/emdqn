@@ -39,6 +39,8 @@ from baselines.common.azure_utils import Container
 # from model import
 from baselines.deepq.experiments.atari.model import model, dueling_model
 from baselines.deepq.experiments.atari.lru_knn import LRU_KNN
+
+
 # from lru_knn import LRU_KNN
 
 
@@ -48,9 +50,10 @@ def parse_args():
     parser.add_argument("--env", type=str, default="Pong", help="name of the game")
     parser.add_argument("--seed", type=int, default=42, help="which seed to use")
     # Core DQN parameters
-    parser.add_argument("--replay-buffer-size", type=int, default=int(1e6), help="replay buffer size")
+    parser.add_argument("--replay-buffer-size", type=int, default=int(1e5), help="replay buffer size")
     parser.add_argument("--lr", type=float, default=1e-4, help="learning rate for Adam optimizer")
-    parser.add_argument("--num-steps", type=int, default=int(1e7),
+    parser.add_argument("--gamma", type=float, default=0.99, help="gamma")
+    parser.add_argument("--num-steps", type=int, default=int(5e6),
                         help="total number of steps to run the environment for")
     parser.add_argument("--batch-size", type=int, default=32, help="number of transitions to optimize at the same time")
     parser.add_argument("--learning-freq", type=int, default=4,
@@ -199,12 +202,13 @@ if __name__ == '__main__':
     with U.make_session(4) as sess:
         # EMDQN
         if emdqn:
-            ec_buffer = []
-            buffer_size = 5000000
+            # ec_buffer = []
+            buffer_size = 1000000
             latent_dim = 4
             input_dim = 220 * 220
-            for i in range(env.action_space.n):
-                ec_buffer.append(LRU_KNN(buffer_size, latent_dim, 'game'))
+            # for i in range(env.action_space.n):
+            #     ec_buffer.append(LRU_KNN(buffer_size, latent_dim, 'game'))
+            ec_buffer = LRU_KNN(buffer_size, latent_dim, 'game')
             rng = np.random.RandomState(123456)  # deterministic, erase 123456 for stochastic
             rp = rng.normal(loc=0, scale=1. / np.sqrt(latent_dim), size=(latent_dim, input_dim))
             qecwatch = []
@@ -215,8 +219,9 @@ if __name__ == '__main__':
 
 
         def update_kdtree():
-            for a in range(env.action_space.n):
-                ec_buffer[a].update_kdtree()
+            ec_buffer.update_kdtree()
+            # for a in range(env.action_space.n):
+            #     ec_buffer[a].update_kdtree()
 
 
         def update_ec(sequence):
@@ -226,18 +231,18 @@ if __name__ == '__main__':
                 z = np.dot(rp, s.flatten())
                 Rtd = r + 0.99 * Rtd
                 z = z.reshape((latent_dim))
-                qd = ec_buffer[a].peek(z, Rtd, True)
+                qd = ec_buffer.peek(z, Rtd, True)
                 if qd == None:  # new action
-                    ec_buffer[a].add(z, Rtd)
+                    ec_buffer.add(z, Rtd)
 
 
         # Create training graph and replay buffer
-        act, train = deepq.build_train(
+        act, train, update_target, debug, get_q_t_selected = deepq.build_train(
             make_obs_ph=lambda name: U.Uint8Input(env.observation_space.shape, name=name),
-            q_func=dueling_model if args.dueling else model,
+            q_func=dueling_model if args.duelinbag else model,
             num_actions=env.action_space.n,
             optimizer=tf.train.AdamOptimizer(learning_rate=args.lr, epsilon=1e-4),
-            gamma=0.99,
+            gamma=args.gamma,
             grad_norm_clipping=10,
             double_q=args.double_q,
             emdqn=args.emdqn
@@ -268,15 +273,15 @@ if __name__ == '__main__':
         approximate_num_iters = args.num_steps / 4
         exploration = PiecewiseSchedule([
             (0, 1.0),
-            (800000, 0.05),
-            (1600000, 0.01)
+            (approximate_num_iters / 50, 0.1),
+            (approximate_num_iters / 5, 0.01)
         ], outside_value=0.01)
 
         if args.prioritized:
             replay_buffer = PrioritizedReplayBuffer(args.replay_buffer_size, args.prioritized_alpha)
             beta_schedule = LinearSchedule(approximate_num_iters, initial_p=args.prioritized_beta0, final_p=1.0)
         else:
-            replay_buffer = ReplayBuffer(args.replay_buffer_size,frame_history_len=1)
+            replay_buffer = ReplayBuffer(args.replay_buffer_size, frame_history_len=1)
 
         U.initialize()
         update_target()
@@ -297,7 +302,7 @@ if __name__ == '__main__':
         while True:
             num_iters += 1
             # Take action and store transition in the replay buffer.
-            action= act(np.array(obs)[None], update_eps=exploration.value(num_iters))[0]
+            action = act(np.array(obs)[None], update_eps=exploration.value(num_iters))[0]
             new_obs, rew, done, info = env.step(action)
             if emdqn:
                 sequence.append([np.array(obs), action, np.clip(rew, -1, 1), ])
@@ -328,8 +333,9 @@ if __name__ == '__main__':
                     qec_input = get_q_t_selected(obses_t, actions)
                     for i in range(args.batch_size):
                         z = np.dot(rp, obses_t[i].flatten())
-                        q = ec_buffer[actions[i]].peek(z, None, modify=False)
-                        if q != None:
+                        v = ec_buffer.peek(z, None, modify=False)
+                        if v != None:
+                            q = rewards[i]+args.gamma*v
                             qec_input[i] = q
                             qecwatch.append(q)
                             qec_found += 1
@@ -342,12 +348,12 @@ if __name__ == '__main__':
                         qecwatch = []
                         tf_writer.add_summary(qec_summary, global_step=num_iters)
 
-
                 # Minimize the error in Bellman's equation and compute TD-error
                 if emdqn:
-                    td_errors, qec_errors,summary = train(obses_t, actions, rewards, obses_tp1, dones, weights, qec_input)
+                    td_errors, qec_errors, summary = train(obses_t, actions, rewards, obses_tp1, dones, weights,
+                                                           qec_input)
                 else:
-                    td_errors,summary = train(obses_t, actions, rewards, obses_tp1, dones, weights)
+                    td_errors, summary = train(obses_t, actions, rewards, obses_tp1, dones, weights)
                 tf_writer.add_summary(summary, global_step=num_iters)
                 # Update the priorities in the replay buffer
                 if args.prioritized:

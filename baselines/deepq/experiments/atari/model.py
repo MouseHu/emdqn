@@ -76,6 +76,50 @@ def rp_model(img_in, num_actions, scope, reuse=False):
         return out, None
 
 
+def modelbased_model_general(latent_in, action, num_actions, scope, reuse=False):
+    latent_dim = int(latent_in.shape[1])
+    # print(latent_in.shape)
+    # print("huhao",type(latent_dim),latent_dim)
+    action = tf.reshape(action, [-1, 1])
+    with tf.variable_scope(scope, reuse=reuse):
+        # action = tf.
+        # action_in = tf.one_hot(action, num_actions)
+        # input = tf.concat([layers.flatten(latent_in), layers.flatten(action_in)], axis=1)
+        hidden = layers.fully_connected(latent_in, num_outputs=64, activation_fn=tf.nn.relu)
+        hidden = layers.fully_connected(hidden, num_outputs=64, activation_fn=tf.nn.relu)
+        hidden = layers.fully_connected(hidden, num_outputs=64, activation_fn=tf.nn.relu)
+        latent_tp1 = layers.fully_connected(hidden, num_outputs=latent_dim * num_actions, activation_fn=None)
+        latent_tp1 = tf.reshape(latent_tp1, [-1, num_actions, latent_dim])
+        latent_tp1 = tf.gather(latent_tp1, action, axis=1, batch_dims=1)
+        latent_tp1 = tf.reshape(latent_tp1, [-1, latent_dim])
+        latent_tp1 = latent_tp1 + latent_in
+        # latent_tp1 = latent_tp1 / tf.norm(latent_tp1)
+        reward = layers.fully_connected(hidden, num_outputs=1, activation_fn=None)
+    return latent_tp1, reward
+
+
+def modelbased_model(latent_in, action, num_actions, scope, reuse=False):
+    latent_dim = int(latent_in.shape[1])
+    # print(latent_in.shape)
+    # print("huhao",type(latent_dim),latent_dim)
+    action = tf.reshape(action, [-1, 1])
+    with tf.variable_scope(scope, reuse=reuse):
+        # action = tf.
+        # action_in = tf.one_hot(action, num_actions)
+        # input = tf.concat([layers.flatten(latent_in), layers.flatten(action_in)], axis=1)
+        hidden = layers.fully_connected(latent_in, num_outputs=64, activation_fn=tf.nn.relu)
+        hidden = layers.fully_connected(hidden, num_outputs=64, activation_fn=tf.nn.relu)
+        hidden = layers.fully_connected(hidden, num_outputs=64, activation_fn=tf.nn.relu)
+        latent_tp1 = layers.fully_connected(hidden, num_outputs=latent_dim * num_actions, activation_fn=None)
+        latent_tp1 = tf.reshape(latent_tp1, [-1, num_actions, latent_dim])
+        latent_tp1 = tf.gather(latent_tp1, action, axis=1, batch_dims=1)
+        latent_tp1 = tf.reshape(latent_tp1, [-1, latent_dim])
+        latent_tp1 = latent_tp1 + latent_in
+        # latent_tp1 = latent_tp1 / tf.norm(latent_tp1)
+        reward = layers.fully_connected(hidden, num_outputs=1, activation_fn=None)
+    return latent_tp1, reward
+
+
 def contrastive_model(img_in, num_actions, scope, reuse=False):
     """As described in https://storage.googleapis.com/deepmind-data/assets/papers/DeepMindNature14236Paper.pdf"""
     img_size = img_in.shape[1]
@@ -100,6 +144,32 @@ def contrastive_model(img_in, num_actions, scope, reuse=False):
             v_h = layers.fully_connected(z, num_outputs=512, activation_fn=tf.nn.relu)
             v = layers.fully_connected(v_h, num_outputs=1, activation_fn=None)
         return normed_z, v
+
+
+def contrastive_model_general(img_in, num_actions, scope, reuse=False):
+    """As described in https://storage.googleapis.com/deepmind-data/assets/papers/DeepMindNature14236Paper.pdf"""
+    img_size = img_in.shape[1]
+    print("img shape", img_in.shape)
+    with tf.variable_scope(scope, reuse=reuse):
+        out = img_in
+        # coordinate = np.meshgrid()
+        coordinate = tf.meshgrid(np.linspace(-1, 1, img_size),
+                                 np.linspace(-1, 1, img_size))  # .to(torch.device("cuda"))
+
+        with tf.variable_scope("convnet"):
+            # original architecture
+            out = layers.convolution2d(out, num_outputs=32, kernel_size=8, stride=4, activation_fn=tf.nn.relu)
+            out = layers.convolution2d(out, num_outputs=64, kernel_size=4, stride=2, activation_fn=tf.nn.relu)
+            out = layers.convolution2d(out, num_outputs=64, kernel_size=3, stride=1, activation_fn=tf.nn.relu)
+        out = layers.flatten(out)
+
+        z = layers.fully_connected(out, num_outputs=32, activation_fn=tf.nn.tanh)
+        # normed_z = z / tf.norm(z, axis=1, keepdims=True)
+        # print("normed_z:", normed_z.shape)
+        with tf.variable_scope("action_value"):
+            v_h = layers.fully_connected(z, num_outputs=512, activation_fn=tf.nn.relu)
+            v = layers.fully_connected(v_h, num_outputs=1, activation_fn=None)
+        return z, v
 
 
 def dueling_model(img_in, num_actions, scope, reuse=False):

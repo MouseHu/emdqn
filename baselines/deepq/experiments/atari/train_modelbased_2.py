@@ -36,7 +36,7 @@ from baselines.common.schedules import LinearSchedule, PiecewiseSchedule
 # copy over LazyFrames
 from baselines.common.atari_wrappers_deprecated import wrap_dqn
 from baselines.common.azure_utils import Container
-from baselines.deepq.experiments.atari.model import contrastive_model, rp_model
+from baselines.deepq.experiments.atari.model import contrastive_model_general, rp_model, modelbased_model_general
 # from baselines.deepq.experiments.atari.lru_knn_ucb import LRU_KNN_UCB
 from baselines.deepq.experiments.atari.lru_knn_ucb import LRU_KNN_UCB
 from baselines.common.atari_lib import create_atari_environment
@@ -209,12 +209,9 @@ if __name__ == '__main__':
 
     with U.make_session(4) as sess:
         # EMDQN
+        buffer_size = 1000000
+        ec_buffer = LRU_KNN_UCB(buffer_size, args.latent_dim, 'game', mode=args.mode)
 
-        ec_buffer = []
-        buffer_size = int(1000000 / env.action_space.n)
-        # input_dim = 1024
-        for i in range(env.action_space.n):
-            ec_buffer.append(LRU_KNN_UCB(buffer_size, args.latent_dim, 'game', mode=args.mode))
         # rng = np.random.RandomState(123456)  # deterministic, erase 123456 for stochastic
         # rp = rng.normal(loc=0, scale=1. / np.sqrt(latent_dim), size=(latent_dim, input_dim))
         qecwatch = []
@@ -229,61 +226,35 @@ if __name__ == '__main__':
         def act(ob, stochastic=0, update_eps=-1):
             global eps, qecwatch, qec_found, num_iters
             # print(ob.shape)
+
             z = z_func(ob)
+            # next_z, rs = model_func(np.tile(ob, [env.action_space.n, 1, 1, 1]), actions)
             z = np.array(z).reshape((args.latent_dim))
             if update_eps >= 0:
                 eps = update_eps
             if np.random.random() < max(stochastic, eps):
                 action = np.random.randint(0, env.action_space.n)
-                # for a in range(env.action_space.n):
-                #     # print(np.array(z).shape)
-                #     q, count = ec_buffer[a].peek(z, 0,modify=False)
-                #     # print("random q", q)
-                #     if q is not None:
-                #         qecwatch.append(q)
-                #         qec_found += 1
                 # print(eps,env.action_space.n,action)
                 return action, z
             else:
                 # print(eps,stochastic,np.random.rand(0, 1))
-                qs = np.zeros(env.action_space.n)
-                counts = np.zeros(env.action_space.n)
-
-                for a in range(env.action_space.n):
-                    # print(np.array(z).shape)
-                    qs[a], counts[a] = ec_buffer[a].knn_value(z, args.knn)
-                    # qs[a], counts[a], find = ec_buffer[a].act_value(z, args.knn)
-                    # print(find)
-                    # if find:
-                    #     qecwatch.append(qs[a])
-                    #     qec_found += 1
-
-                if args.exploration:
-                    qs = np.exp(5 * qs)
-                    qs = qs / np.sum(qs)
-                    action_random = np.random.rand()
-                    action_selected = -1
-                    while action_random > 0:
-                        action_selected += 1
-                        action_random -= qs[action_selected]
-                    action_random = max(0, min(action_random, env.action_space.n - 1))
-                    return action_random, z
-                else:
-                    ucb_value = np.sqrt(2 * np.log(np.sum(counts)) / counts) if args.ucb else 0
-                    optimistic_q = qs + ucb_value
-
-                    q_max = np.max(optimistic_q)
-                    # print("optimistic q", optimistic_q.shape, np.where(optimistic_q == q_max))
-                    max_action = np.where(optimistic_q == q_max)[0]
-                    # print(max_action)
-                    action_selected = np.random.randint(0, len(max_action))
-                    # print("ec",eps,np.argmax(q),q)
-                    return max_action[action_selected], z
+                # qs = np.zeros(env.action_space.n)
+                actions = np.arange(env.action_space.n)
+                next_zs, rs = model_func(np.tile(z, [env.action_space.n, 1]), actions)
+                vs = ec_buffer.knn_value(next_zs[0], args.knn)
+                qs = args.gamma * np.array(vs) + np.array(rs)
+                optimistic_q = qs
+                q_max = np.max(optimistic_q)
+                # print("optimistic q", optimistic_q.shape, np.where(optimistic_q == q_max))
+                max_action = np.where(optimistic_q == q_max)[0]
+                # print(max_action)
+                action_selected = np.random.randint(0, len(max_action))
+                # print("ec",eps,np.argmax(q),q)
+                return max_action[action_selected], z
 
 
         def update_kdtree():
-            for a in range(env.action_space.n):
-                ec_buffer[a].update_kdtree()
+            ec_buffer.update_kdtree()
 
 
         def update_ec(sequence):
@@ -298,16 +269,17 @@ if __name__ == '__main__':
                 Rtd = r + args.gamma * Rtd
                 Rtds.append(Rtd)
                 z = np.array(z).reshape((args.latent_dim))
-                qd, _ = ec_buffer[a].peek(z, Rtd, True)
-                if qd is None:  # new action
-                    ec_buffer[a].add(z, Rtd)
+                v, _ = ec_buffer.peek(z, Rtd, True)
+                if v == None:  # new action
+                    ec_buffer.add(z, Rtd)
             return Rtds
 
 
         # Create training graph and replay buffer
-        z_func, train = deepq.build_train_contrast(
+        z_func, model_func, train = deepq.build_train_modelbased_general(
             make_obs_ph=lambda name: U.Uint8Input(env.observation_space.shape, name=name),
-            model_func=rp_model if args.rp else contrastive_model,
+            net_func=rp_model if args.rp else contrastive_model_general,
+            model_func=modelbased_model_general,
             num_actions=env.action_space.n,
             optimizer=tf.train.AdamOptimizer(learning_rate=args.lr, epsilon=1e-4),
             gamma=args.gamma,
@@ -326,13 +298,12 @@ if __name__ == '__main__':
                 (args.end_training, 1.0),
                 # (args.end_training+1, 1.0),
                 # (args.end_training+1, 0.005),
-                (args.end_training+400000, 0.05),
-                (args.end_training+800000, 0.01),
+                (args.end_training + 100000, 0.01),
                 # (approximate_num_iters / 5, 0.1),
                 # (approximate_num_iters / 3, 0.01)
             ], outside_value=0.01)
 
-        replay_buffer = ReplayBufferContra(args.replay_buffer_size)
+        replay_buffer = ReplayBufferContra(args.replay_buffer_size, K=args.negative_samples)
 
         U.initialize()
         num_iters = 0
@@ -395,8 +366,10 @@ if __name__ == '__main__':
                     args.negative_samples + 1) and (
                     num_iters < args.end_training or args.learning):
                 # train vae
-                obses_t, actions, rewards, obses_tp1, dones, obses_neg = replay_buffer.sample(args.batch_size)
-                inputs = [[1], obses_t, obses_tp1, obses_neg]
+                obses_t, actions, rewards, obses_tp1, dones, obses_neg = replay_buffer.sample(args.batch_size, False)
+                obses_t_c, actions_c, rewards_c, obses_tp1_c, dones_c, obses_neg_c = replay_buffer.sample(args.batch_size)
+                inputs = [[1],obses_t_c,obses_tp1_c,obses_neg_c,obses_t, obses_tp1, rewards,actions]
+                # inputs = [obses_t, obses_tp1, rewards, actions]
                 total_errors, summary = train(*inputs)
                 tf_writer.add_summary(summary, global_step=num_iters)
                 # tf_writer.add_summary(summary,global_step=info["steps"])
@@ -437,8 +410,8 @@ if __name__ == '__main__':
                 logger.record_tabular("reward", np.mean(non_discount_return[-return_len - 1:-1]))
                 logger.record_tabular("discount reward", np.mean(discount_return[-return_len - 1:-1]))
                 logger.record_tabular("num episode", num_episodes)
-                logger.record_tabular("qec_mean", np.mean(qecwatch))
-                logger.record_tabular("qec_proportion", qec_found / (num_iters - start_steps))
+                # logger.record_tabular("qec_mean", np.mean(qecwatch))
+                # logger.record_tabular("qec_proportion", qec_found / (num_iters - start_steps))
                 logger.record_tabular("update time", update_time)
                 logger.record_tabular("train time", train_time)
                 logger.record_tabular("act_time", act_time)
@@ -446,8 +419,8 @@ if __name__ == '__main__':
                 value_summary.value[0].simple_value = np.mean(discount_return[-return_len - 1:-1])
                 value_summary.value[1].simple_value = np.mean(non_discount_return[-return_len - 1:-1])
                 value_summary.value[3].simple_value = num_episodes
-                qec_summary.value[0].simple_value = np.mean(qecwatch)
-                qec_summary.value[1].simple_value = qec_found / (num_iters - start_steps)
+                # qec_summary.value[0].simple_value = np.mean(qecwatch)
+                # qec_summary.value[1].simple_value = qec_found / (num_iters - start_steps)
 
                 # if return_len > 1:
                 #     # np.mean(np.mean(episodic_return[-return_mean + 1:-1]))
@@ -462,9 +435,9 @@ if __name__ == '__main__':
                 logger.log()
 
                 start_steps = num_iters
-                qecwatch = []
-                qec_found = 0
+                # qecwatch = []
+                # qec_found = 0
             total_steps = num_iters - args.end_training
             tf_writer.add_summary(value_summary, global_step=total_steps)
-            tf_writer.add_summary(qec_summary, global_step=total_steps)
+            # tf_writer.add_summary(qec_summary, global_step=total_steps)
             cur_time = time.time()

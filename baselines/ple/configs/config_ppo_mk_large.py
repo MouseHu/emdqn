@@ -139,7 +139,7 @@ map_config = {
     'ppo_config': ppo_config,
     # work automatically only for aigym wrapped version
     'fps': 1000,
-    'frame_skip': 1,
+    'frame_skip': 3,
     'force_fps': True,  # set to true to make the game run as fast as possible
     'display_screen': False,
     'episode_length': 2400,

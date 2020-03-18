@@ -481,12 +481,12 @@ class AtariPreprocessing(object):
     if screen_size <= 0:
       raise ValueError('Target screen size should be strictly positive, got {}'.
                        format(screen_size))
-
+    self.env=environment
     self.environment = environment
     self.terminal_on_life_loss = terminal_on_life_loss
     self.frame_skip = frame_skip
     self.screen_size = screen_size
-
+    self.unwrapped = environment
     obs_dims = self.environment.observation_space
     # Stores temporary observations used for pooling over two successive
     # frames.

@@ -110,7 +110,7 @@ class ReplayBufferContra(object):
             self._storage[self._next_idx] = data
         self._next_idx = (self._next_idx + 1) % self._maxsize
 
-    def _encode_sample(self, idxes):
+    def _encode_sample(self, idxes,switch_first_half=True):
         negidxes = []
         for i in range(len(idxes)):
             exclude = [(idxes[i] - 1) % self._maxsize, idxes[i], (idxes[i] + 1) % self._maxsize]
@@ -136,7 +136,8 @@ class ReplayBufferContra(object):
             rewards.append(reward)
             obses_tp1.append(np.array(obs_tp1, copy=False))
             dones.append(done)
-        self.switch_first_half(np.array(obses_t), np.array(obses_tp1), len(idxes))
+        if switch_first_half:
+            self.switch_first_half(np.array(obses_t), np.array(obses_tp1), len(idxes))
         for i in negidxes:
             data = self._storage[i]
             obs_t, action, reward, obs_tp1, done = data
@@ -144,7 +145,7 @@ class ReplayBufferContra(object):
         return np.array(obses_t), np.array(actions), np.array(rewards), np.array(obses_tp1), np.array(dones), np.array(
             obses_neg)
 
-    def sample(self, batch_size):
+    def sample(self, batch_size,switch=True):
         """Sample a batch of experiences.
 
         Parameters
@@ -167,7 +168,7 @@ class ReplayBufferContra(object):
             the end of an episode and 0 otherwise.
         """
         idxes = [random.randint(0, len(self._storage) - 1) for _ in range(batch_size)]
-        return self._encode_sample(idxes)
+        return self._encode_sample(idxes,switch)
 
 
 class ReplayBufferHash(object):

@@ -496,7 +496,7 @@ class GIFRecorder(gym.Wrapper):
         self.returns = 0
         self.num_steps = 0
         if not os.path.isdir(video_path):
-            os.mkdir(video_path)
+            os.makedirs(video_path)
 
     def step(self, action):
         obs, reward, done, info = self.env.step(action)

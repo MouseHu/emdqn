@@ -21,7 +21,7 @@ import baselines.common.tf_util as U
 import datetime
 from baselines import logger
 from baselines import deepq
-from baselines.deepq.replay_buffer import ReplayBufferContra, PrioritizedReplayBuffer
+from baselines.deepq.replay_buffer import ReplayBufferHash, PrioritizedReplayBuffer
 from baselines.common.misc_util import (
     boolean_flag,
     pickle_load,
@@ -36,7 +36,7 @@ from baselines.common.schedules import LinearSchedule, PiecewiseSchedule
 # copy over LazyFrames
 from baselines.common.atari_wrappers_deprecated import wrap_dqn
 from baselines.common.azure_utils import Container
-from baselines.deepq.experiments.atari.model import contrastive_model, rp_model
+from baselines.deepq.experiments.atari.model import contrastive_model, rp_model, model
 # from baselines.deepq.experiments.atari.lru_knn_ucb import LRU_KNN_UCB
 from baselines.deepq.experiments.atari.lru_knn_ucb import LRU_KNN_UCB
 from baselines.common.atari_lib import create_atari_environment
@@ -58,14 +58,14 @@ def parse_args():
     parser.add_argument("--num-steps", type=int, default=int(5e6),
                         help="total number of steps to run the environment for")
     parser.add_argument("--negative-samples", type=int, default=10, help="numbers for negative samples")
-    parser.add_argument("--batch-size", type=int, default=16,
+    parser.add_argument("--batch-size", type=int, default=32,
                         help="number of transitions to optimize at the same time")
     parser.add_argument("--learning-freq", type=int, default=16,
                         help="number of iterations between every optimization step")
     parser.add_argument("--target-update-freq", type=int, default=10000,
                         help="number of iterations between every target network update")
-    parser.add_argument("--knn", type=int, default=11, help="number of k nearest neighbours")
-    parser.add_argument("--end_training", type=int, default=2e5, help="number of pretrain steps")
+    parser.add_argument("--knn", type=int, default=4, help="number of k nearest neighbours")
+    parser.add_argument("--end_training", type=int, default=0, help="number of pretrain steps")
     parser.add_argument('--map_config', type=str,
                         help='The map and config you want to run in MonsterKong.',
                         default='../../../ple/configs/config_ppo_mk_large.py')
@@ -95,6 +95,10 @@ def parse_args():
                  help="if true and model was continued learned")
 
     boolean_flag(parser, "ucb", default=False, help="whether or not to use ucb exploration")
+    boolean_flag(parser, "dueling", default=True, help="whether or not to use dueling")
+    boolean_flag(parser, "episodic", default=True, help="whether or not to use dueling")
+    boolean_flag(parser, "baseline", default=False, help="if baseline use episodic memory instead of network")
+    boolean_flag(parser, "imitate", default=False, help="if baseline use episodic memory instead of network")
     boolean_flag(parser, "rp", default=False, help="whether or not to use random projection")
     # EMDQN
     boolean_flag(parser, "train-latent", default=False, help="whether or not to further train latent")
@@ -202,19 +206,20 @@ if __name__ == '__main__':
     value_summary.value.add(tag='non_discount_reward_mean')
     # value_summary.value.add(tag='episode')
 
-    qec_summary.value.add(tag='qec_mean')
-    qec_summary.value.add(tag='qec_fount')
+    qec_summary.value.add(tag='qec_find_t')
+    qec_summary.value.add(tag='qec_find_tp1')
     value_summary.value.add(tag='steps')
     value_summary.value.add(tag='episodes')
 
     with U.make_session(4) as sess:
         # EMDQN
 
-        ec_buffer = []
-        buffer_size = int(1000000 / env.action_space.n)
+        buffer_size = 1000000
         # input_dim = 1024
-        for i in range(env.action_space.n):
-            ec_buffer.append(LRU_KNN_UCB(buffer_size, args.latent_dim, 'game', mode=args.mode))
+        ec_buffer = []
+        for a in range(env.action_space.n):
+            ec_buffer.append(
+                LRU_KNN_UCB(buffer_size, args.latent_dim, 'game', mode=args.mode, num_actions=env.action_space.n))
         # rng = np.random.RandomState(123456)  # deterministic, erase 123456 for stochastic
         # rp = rng.normal(loc=0, scale=1. / np.sqrt(latent_dim), size=(latent_dim, input_dim))
         qecwatch = []
@@ -226,59 +231,43 @@ if __name__ == '__main__':
             './results/result_%s_contrast_%s' % (args.env, args.comment), 'w+')
 
 
-        def act(ob, stochastic=0, update_eps=-1):
+        def act_baseline(z, stochastic=0, update_eps=-1):
             global eps, qecwatch, qec_found, num_iters
             # print(ob.shape)
-            z = z_func(ob)
             z = np.array(z).reshape((args.latent_dim))
             if update_eps >= 0:
                 eps = update_eps
             if np.random.random() < max(stochastic, eps):
-                action = np.random.randint(0, env.action_space.n)
-                # for a in range(env.action_space.n):
-                #     # print(np.array(z).shape)
-                #     q, count = ec_buffer[a].peek(z, 0,modify=False)
-                #     # print("random q", q)
-                #     if q is not None:
-                #         qecwatch.append(q)
-                #         qec_found += 1
-                # print(eps,env.action_space.n,action)
-                return action, z
+                acts = np.random.randint(0, env.action_space.n)
+                return acts
             else:
                 # print(eps,stochastic,np.random.rand(0, 1))
-                qs = np.zeros(env.action_space.n)
-                counts = np.zeros(env.action_space.n)
-
+                qs = np.zeros((env.action_space.n,))
                 for a in range(env.action_space.n):
-                    # print(np.array(z).shape)
-                    qs[a], counts[a] = ec_buffer[a].knn_value(z, args.knn)
-                    # qs[a], counts[a], find = ec_buffer[a].act_value(z, args.knn)
-                    # print(find)
-                    # if find:
-                    #     qecwatch.append(qs[a])
-                    #     qec_found += 1
+                    qs[a], action_prob, _, _ = ec_buffer[a].act_value(z, args.knn)
+                q_max = np.max(qs)
+                # print("optimistic q", optimistic_q.shape, np.where(optimistic_q == q_max))
+                max_action = np.where(qs == q_max)[0]
+                # print(max_action)
+                action_selected = np.random.randint(0, len(max_action))
+                # print("ec",eps,np.argmax(q),q)
+                return max_action[action_selected]
+                # print("ec",eps,np.argmax(q),
 
-                if args.exploration:
-                    qs = np.exp(5 * qs)
-                    qs = qs / np.sum(qs)
-                    action_random = np.random.rand()
-                    action_selected = -1
-                    while action_random > 0:
-                        action_selected += 1
-                        action_random -= qs[action_selected]
-                    action_random = max(0, min(action_random, env.action_space.n - 1))
-                    return action_random, z
-                else:
-                    ucb_value = np.sqrt(2 * np.log(np.sum(counts)) / counts) if args.ucb else 0
-                    optimistic_q = qs + ucb_value
 
-                    q_max = np.max(optimistic_q)
-                    # print("optimistic q", optimistic_q.shape, np.where(optimistic_q == q_max))
-                    max_action = np.where(optimistic_q == q_max)[0]
-                    # print(max_action)
-                    action_selected = np.random.randint(0, len(max_action))
-                    # print("ec",eps,np.argmax(q),q)
-                    return max_action[action_selected], z
+        def state_value(z):
+            qs = np.zeros((env.action_space.n,))
+            finds = 0
+            for a in range(env.action_space.n):
+                qs[a], action_prob, _, find = ec_buffer[a].act_value(z, args.knn)
+                finds += int(find)
+            q_max = np.max(qs)
+            max_action = np.where(qs == q_max)[0]
+            # print(max_action)
+            action_selected = np.random.randint(0, len(max_action))
+            action_onehot = np.zeros((env.action_space.n,))
+            action_onehot[max_action[action_selected]] = 1
+            return q_max, action_onehot, finds
 
 
         def update_kdtree():
@@ -293,21 +282,26 @@ if __name__ == '__main__':
             Rtds = [0]
             for seq in reversed(sequence):
                 s, z, a, r = seq
+                a = int(a)
                 # z = s.flatten()
                 # z = np.dot(rp, s.flatten())
                 Rtd = r + args.gamma * Rtd
                 Rtds.append(Rtd)
                 z = np.array(z).reshape((args.latent_dim))
-                qd, _ = ec_buffer[a].peek(z, Rtd, True)
-                if qd is None:  # new action
-                    ec_buffer[a].add(z, Rtd)
+                # print(a, type(a))
+                v, _, _ = ec_buffer[a].peek(z, Rtd, a, True)
+                if v is None:  # new action
+                    # print(a,type(a))
+                    ec_buffer[a].add(z, Rtd, a)
             return Rtds
 
 
         # Create training graph and replay buffer
-        z_func, train = deepq.build_train_contrast(
+        act, train = deepq.build_train_dueling(
             make_obs_ph=lambda name: U.Uint8Input(env.observation_space.shape, name=name),
             model_func=rp_model if args.rp else contrastive_model,
+            q_func=model,
+            imitate=args.imitate,
             num_actions=env.action_space.n,
             optimizer=tf.train.AdamOptimizer(learning_rate=args.lr, epsilon=1e-4),
             gamma=args.gamma,
@@ -315,24 +309,19 @@ if __name__ == '__main__':
         )
 
         approximate_num_iters = args.num_steps
-        if args.ucb:
-            exploration = PiecewiseSchedule([
-                (0, 1),
-                (2e4, 1),
-            ], outside_value=0.01)
-        else:
-            exploration = PiecewiseSchedule([
-                (0, 1.0),
-                (args.end_training, 1.0),
-                # (args.end_training+1, 1.0),
-                # (args.end_training+1, 0.005),
-                (args.end_training+400000, 0.05),
-                (args.end_training+800000, 0.01),
-                # (approximate_num_iters / 5, 0.1),
-                # (approximate_num_iters / 3, 0.01)
-            ], outside_value=0.01)
 
-        replay_buffer = ReplayBufferContra(args.replay_buffer_size)
+        exploration = PiecewiseSchedule([
+            (0, 1.0),
+            (args.end_training, 1.0),
+            # (args.end_training+1, 1.0),
+            # (args.end_training+1, 0.005),
+            (args.end_training + 200000, 0.05),
+            (args.end_training + 400000, 0.01),
+            # (approximate_num_iters / 5, 0.1),
+            # (approximate_num_iters / 3, 0.01)
+        ], outside_value=0.01)
+
+        replay_buffer = ReplayBufferHash(args.replay_buffer_size)
 
         U.initialize()
         num_iters = 0
@@ -341,10 +330,6 @@ if __name__ == '__main__':
         discount_return = [0.0]
         # Load the model
         state = maybe_load_model(savedir, container)
-        # if state is not None:
-        #     num_iters, replay_buffer = state["num_iters"], state["replay_buffer"],
-        # monitored_env.set_state(state["monitor_state"])
-
         start_time, start_steps = time.time(), 0
         steps_per_iter = RunningAvg(0.999)
         iteration_time_est = RunningAvg(0.999)
@@ -361,9 +346,13 @@ if __name__ == '__main__':
             # Take action and store transition in the replay buffer.
             action, z = \
                 act(np.array(obs)[None], update_eps=exploration.value(num_iters))
+            if args.baseline:
+                action = act_baseline(z, update_eps=exploration.value(num_iters))
             act_time += time.time() - cur_time
             cur_time = time.time()
             new_obs, rew, done, info = env.step(action)
+            _, z_tp1 = \
+                act(np.array(new_obs)[None], update_eps=exploration.value(num_iters))
             env_time += time.time() - cur_time
             cur_time = time.time()
             # if num_episodes % 40 == 39:
@@ -372,7 +361,7 @@ if __name__ == '__main__':
             discount_return[-1] += rew * args.gamma ** (num_iters - start_steps)
             # EMDQN
             sequence.append([obs, z, action, np.clip(rew, -1, 1)])
-            replay_buffer.add(obs, action, rew, new_obs, float(done))
+            replay_buffer.add(obs, z, action, rew, new_obs, z_tp1, float(done))
             obs = new_obs
             if done:
                 # print((num_iters - start_steps), args.gamma ** (num_iters - start_steps))
@@ -392,13 +381,27 @@ if __name__ == '__main__':
                 discount_return.append(0.0)
 
             if num_iters % args.learning_freq == 0 and len(replay_buffer) > args.batch_size * (
-                    args.negative_samples + 1) and (
-                    num_iters < args.end_training or args.learning):
+                    args.negative_samples + 1) and not args.baseline:
                 # train vae
-                obses_t, actions, rewards, obses_tp1, dones, obses_neg = replay_buffer.sample(args.batch_size)
-                inputs = [[1], obses_t, obses_tp1, obses_neg]
+                obses_t, hashes_t, actions, rewards, obses_tp1, hashes_tp1, dones = replay_buffer.sample(
+                    args.batch_size)
+                # info = [ec_buffer.act_value(h, args.knn) for h in hashes_t]
+                values_t, actions_t, find_t = tuple(zip(*[state_value(h) for h in hashes_t]))
+                values_tp1, actions_tp1, find_tp1 = tuple(zip(*[state_value(h) for h in hashes_tp1]))
+                qec_summary.value[0].simple_value = np.mean(find_t)
+                qec_summary.value[1].simple_value = np.mean(find_tp1)
+                # actions_t = [np.array(x[1]) if x[1] is not None else np.ones(
+                #     (env.action_space.n,)) / env.action_space.n for x in info]
+                # print(actions_t)
+                # print(np.array(actions_t).shape)
+                # values_tp1 = [ec_buffer.act_value(h, args.knn)[0] for h in hashes_tp1]
+                inputs = [obses_t, np.array(actions).squeeze(), rewards, dones, np.ones_like(dones), values_t,
+                          values_tp1]
+                if args.imitate:
+                    inputs.append(actions_t)
                 total_errors, summary = train(*inputs)
                 tf_writer.add_summary(summary, global_step=num_iters)
+                tf_writer.add_summary(qec_summary, global_step=total_steps)
                 # tf_writer.add_summary(summary,global_step=info["steps"])
                 # Update target network.
             train_time += time.time() - cur_time
@@ -446,8 +449,8 @@ if __name__ == '__main__':
                 value_summary.value[0].simple_value = np.mean(discount_return[-return_len - 1:-1])
                 value_summary.value[1].simple_value = np.mean(non_discount_return[-return_len - 1:-1])
                 value_summary.value[3].simple_value = num_episodes
-                qec_summary.value[0].simple_value = np.mean(qecwatch)
-                qec_summary.value[1].simple_value = qec_found / (num_iters - start_steps)
+                # qec_summary.value[0].simple_value = np.mean(qecwatch)
+                # qec_summary.value[1].simple_value = qec_found / (num_iters - start_steps)
 
                 # if return_len > 1:
                 #     # np.mean(np.mean(episodic_return[-return_mean + 1:-1]))

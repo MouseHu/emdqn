@@ -58,7 +58,8 @@ class LRU_KNN:
 
         # if self.states[ind] == key:
         # if np.allclose(self.states[ind], key):
-        if np.allclose(self.states[ind], key, atol=1e-08):
+        # if np.allclose(self.states[ind], key, atol=1e-08):
+        if dist[0][0] < 1e-2:
             self.lru[ind] = self.tm
             self.tm += 0.01
             if modify:
