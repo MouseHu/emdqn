@@ -19,6 +19,7 @@ print(sys.path)
 from baselines.deepq.dqn_utils import *
 import baselines.common.tf_util as U
 import datetime
+from threading import Thread
 from baselines import logger
 from baselines import deepq
 from baselines.deepq.replay_buffer import ReplayBufferHash, PrioritizedReplayBuffer
@@ -37,8 +38,8 @@ from baselines.common.schedules import LinearSchedule, PiecewiseSchedule
 from baselines.common.atari_wrappers_deprecated import wrap_dqn
 from baselines.common.azure_utils import Container
 from baselines.deepq.experiments.atari.model import contrastive_model, rp_model, model
-# from baselines.deepq.experiments.atari.lru_knn_ucb import LRU_KNN_UCB
 from baselines.deepq.experiments.atari.lru_knn_ucb import LRU_KNN_UCB
+from baselines.deepq.experiments.atari.lru_knn_ucb_gpu import LRU_KNN_UCB_GPU
 from baselines.common.atari_lib import create_atari_environment
 
 
@@ -219,7 +220,8 @@ if __name__ == '__main__':
         ec_buffer = []
         for a in range(env.action_space.n):
             ec_buffer.append(
-                LRU_KNN_UCB(buffer_size, args.latent_dim, 'game', mode=args.mode, num_actions=env.action_space.n))
+                LRU_KNN_UCB_GPU(buffer_size, args.latent_dim, 'game', action=a, mode=args.mode,
+                                num_actions=env.action_space.n))
         # rng = np.random.RandomState(123456)  # deterministic, erase 123456 for stochastic
         # rp = rng.normal(loc=0, scale=1. / np.sqrt(latent_dim), size=(latent_dim, input_dim))
         qecwatch = []
@@ -242,9 +244,17 @@ if __name__ == '__main__':
                 return acts
             else:
                 # print(eps,stochastic,np.random.rand(0, 1))
-                qs = np.zeros((env.action_space.n,))
+                qs = np.zeros((env.action_space.n, 1))
+                finds = np.zeros((1,))
+                threads = []
                 for a in range(env.action_space.n):
-                    qs[a], action_prob, _, _ = ec_buffer[a].act_value(z, args.knn)
+                    t = Thread(target=act_value_thread, args=(a, [z], qs, finds))
+                    threads.append(t)
+                    t.start()
+                    # qs[a], _, _, find = ec_buffer[a].act_value(zs, args.knn)
+                    # finds += sum(find)
+                for t in threads:
+                    t.join()
                 q_max = np.max(qs)
                 # print("optimistic q", optimistic_q.shape, np.where(optimistic_q == q_max))
                 max_action = np.where(qs == q_max)[0]
@@ -255,19 +265,36 @@ if __name__ == '__main__':
                 # print("ec",eps,np.argmax(q),
 
 
-        def state_value(z):
-            qs = np.zeros((env.action_space.n,))
-            finds = 0
+        def act_value_thread(a, zs, qs, finds):
+            qs[a], _, _, find = ec_buffer[a].act_value(zs, args.knn)
+            finds += find
+
+
+        def state_value(zs):
+            batch_size = len(zs)
+            qs = np.zeros((env.action_space.n, batch_size))
+            finds = np.zeros((batch_size,))
+            threads = []
             for a in range(env.action_space.n):
-                qs[a], action_prob, _, find = ec_buffer[a].act_value(z, args.knn)
-                finds += int(find)
-            q_max = np.max(qs)
-            max_action = np.where(qs == q_max)[0]
+                t = Thread(target=act_value_thread, args=(a, zs, qs, finds))
+                threads.append(t)
+                t.start()
+                # qs[a], _, _, find = ec_buffer[a].act_value(zs, args.knn)
+                # finds += sum(find)
+            for t in threads:
+                t.join()
+            qs = np.transpose(qs)
+            q_max = np.max(qs, axis=1)
+            actions_onehot = []
+            for i in range(batch_size):
+                max_actions = np.where(qs[i] == q_max[i])[0]
+                action_selected = np.random.randint(0, len(max_actions))
+                action_onehot = np.zeros((env.action_space.n,))
+                action_onehot[max_actions[action_selected]] = 1
+                actions_onehot.append(action_onehot)
             # print(max_action)
-            action_selected = np.random.randint(0, len(max_action))
-            action_onehot = np.zeros((env.action_space.n,))
-            action_onehot[max_action[action_selected]] = 1
-            return q_max, action_onehot, finds
+
+            return q_max, np.array(actions_onehot), finds
 
 
         def update_kdtree():
@@ -386,8 +413,11 @@ if __name__ == '__main__':
                 obses_t, hashes_t, actions, rewards, obses_tp1, hashes_tp1, dones = replay_buffer.sample(
                     args.batch_size)
                 # info = [ec_buffer.act_value(h, args.knn) for h in hashes_t]
-                values_t, actions_t, find_t = tuple(zip(*[state_value(h) for h in hashes_t]))
-                values_tp1, actions_tp1, find_tp1 = tuple(zip(*[state_value(h) for h in hashes_tp1]))
+                # test = tuple(zip(*state_value(hashes_t)))
+                # print(test,len(test))
+                values_t, actions_t, find_t = state_value(hashes_t)
+                values_tp1, actions_tp1, find_tp1 = state_value(hashes_tp1)
+                # values_tp1, actions_tp1, find_tp1 = tuple(zip(*[state_value(h) for h in hashes_tp1]))
                 qec_summary.value[0].simple_value = np.mean(find_t)
                 qec_summary.value[1].simple_value = np.mean(find_tp1)
                 # actions_t = [np.array(x[1]) if x[1] is not None else np.ones(

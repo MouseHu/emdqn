@@ -10,7 +10,7 @@ class LRU_KNN_COMBINE(object):
         self.ec_buffer = []
         self.num_actions = num_actions
         for i in range(num_actions):
-            self.ec_buffer.append(LRU_KNN_MC(buffer_size, latent_dim, latent_dim, input_dims, 'game'))
+            self.ec_buffer.append(LRU_KNN_MC(buffer_size, latent_dim, hash_dim, input_dims, 'game'))
 
     def add(self, action, key, hash, value_decay, prev_id=-1, prev_action=-1, obs=None):
         buffer = self.ec_buffer[action]
@@ -31,6 +31,7 @@ class LRU_KNN_COMBINE(object):
         buffer.q_values_decay[index] = value_decay
         buffer.lru[index] = buffer.tm
         if prev_id >= 0:
+            assert prev_action>=0, "id and action must provide together"
             prev_buffer = self.ec_buffer[prev_action]
             prev_buffer.next_id[prev_id] = index
             prev_buffer.next_action[prev_id] = action
@@ -43,7 +44,6 @@ class LRU_KNN_COMBINE(object):
         buffer = self.ec_buffer[action]
         if buffer.curr_capacity == 0 or buffer.build_tree == False:
             return None, None
-
         dist, ind = buffer.hash_tree.query([h], k=1)
         ind = ind[0][0]
         # if self.states[ind] == key:
@@ -57,11 +57,12 @@ class LRU_KNN_COMBINE(object):
                 if value_decay > buffer.q_values_decay[ind]:
                     buffer.q_values_decay[ind] = value_decay
                     if prev_id >= 0:
+                        assert prev_action >= 0, "id and action must provide together"
                         self.ec_buffer[buffer.prev_action[prev_id]].next_id[prev_id] = ind
                         self.ec_buffer[buffer.prev_action[prev_id]].next_action[prev_id] = action
                         buffer.prev_id[ind] = prev_id
                         buffer.prev_action[ind] = prev_action
-            return buffer.q_values_decay[ind], ind, action
+            return buffer.q_values_decay[ind], ind
         # print self.states[ind], key
         else:
             pass
@@ -88,7 +89,7 @@ class LRU_KNN_COMBINE(object):
                 anchor_actions.append(rand_action)
                 pos_idxes.append(buffer.next_id[rand_idx])
                 pos_actions.append(buffer.next_action[rand_idx])
-                neg_idx, neg_action = self.sample_neg_keys(
+                neg_action, neg_idx = self.sample_neg_keys(
                     [(rand_idx, rand_action), (buffer.next_id[rand_idx], buffer.next_action[rand_idx])], K)
                 neg_idxes.append(neg_idx)
                 neg_actions.append(neg_action)
@@ -128,6 +129,9 @@ class LRU_KNN_COMBINE(object):
     def update_kdtree(self):
         for ec in self.ec_buffer:
             ec.update_kdtree()
+
+    def knn_value(self, action, key, knn):
+        return self.ec_buffer[action].knn_value(key, knn=knn)
 
     def act_value(self, action, key, h, knn, verbose=True):
         value, _ = self.peek(action, key, h, None, modify=False, verbose=verbose)

@@ -44,6 +44,7 @@ from baselines.deepq.experiments.atari.lru_knn import LRU_KNN
 
 def parse_args():
     parser = argparse.ArgumentParser("DQN experiments for Atari games")
+    parser.add_argument("--gamma", type=int, default=0.99, help="which seed to use")
     # Environment
     parser.add_argument("--env", type=str, default="Pong", help="name of the game")
     parser.add_argument("--seed", type=int, default=42, help="which seed to use")
@@ -185,6 +186,7 @@ if __name__ == '__main__':
     value_summary = tf.Summary()
     qec_summary = tf.Summary()
     value_summary.value.add(tag='discount_reward_mean')
+    value_summary.value.add(tag='non_discount_reward_mean')
     # value_summary.value.add(tag='non_discount_reward_mean')
     # value_summary.value.add(tag='episode')
 
@@ -224,7 +226,7 @@ if __name__ == '__main__':
             for seq in reversed(sequence):
                 s, a, r = seq
                 z = np.dot(rp, s.flatten())
-                Rtd = r + 0.99 * Rtd
+                Rtd = r + args.gamma * Rtd
                 z = z.reshape((latent_dim))
                 qd = ec_buffer[a].peek(z, Rtd, True)
                 if qd == None:  # new action
@@ -232,7 +234,7 @@ if __name__ == '__main__':
 
 
         # Create training graph and replay buffer
-        act, train = deepq.build_train(
+        act, train, update_target, info, get_q_t_selected = deepq.build_train(
             make_obs_ph=lambda name: U.Uint8Input(env.observation_space.shape, name=name),
             q_func=dueling_model if args.dueling else model,
             num_actions=env.action_space.n,
@@ -282,13 +284,15 @@ if __name__ == '__main__':
         update_target()
         num_iters = 0
 
+        non_discount_return = [0.0]
+        discount_return = [0.0]
         # Load the model
         state = maybe_load_model(savedir, container)
         if state is not None:
             num_iters, replay_buffer = state["num_iters"], state["replay_buffer"],
             monitored_env.set_state(state["monitor_state"])
 
-        start_time, start_steps = None, None
+        start_time, start_steps = None, 0
         steps_per_iter = RunningAvg(0.999)
         iteration_time_est = RunningAvg(0.999)
         obs = env.reset()
@@ -299,6 +303,8 @@ if __name__ == '__main__':
             # Take action and store transition in the replay buffer.
             action= act(np.array(obs)[None], update_eps=exploration.value(num_iters))[0]
             new_obs, rew, done, info = env.step(action)
+            non_discount_return[-1] += rew
+            discount_return[-1] += rew * args.gamma ** (num_iters - start_steps)
             if emdqn:
                 sequence.append([np.array(obs), action, np.clip(rew, -1, 1), ])
             if args.prioritized:
@@ -312,6 +318,8 @@ if __name__ == '__main__':
                     update_ec(sequence)
                     sequence = []
                 obs = env.reset()
+                non_discount_return.append(0.0)
+                discount_return.append(0.0)
 
             if (num_iters > max(5 * args.batch_size, args.replay_buffer_size // 20) and
                     num_iters % args.learning_freq == 0):
@@ -360,9 +368,10 @@ if __name__ == '__main__':
                     update_kdtree()
 
             if start_time is not None:
-                steps_per_iter.update(info['steps'] - start_steps)
+                steps_per_iter.update(1)
                 iteration_time_est.update(time.time() - start_time)
-            start_time, start_steps = time.time(), info["steps"]
+            start_time = time.time()
+            # start_time, start_steps = time.time(), info["steps"]
 
             # Save the model and training state.
             '''
@@ -378,6 +387,7 @@ if __name__ == '__main__':
                 break
 
             if done:
+                return_len = min(len(non_discount_return) - 1, 100)
                 steps_left = args.num_steps - info["steps"]
                 completion = np.round(info["steps"] / args.num_steps, 2)
 
@@ -386,10 +396,13 @@ if __name__ == '__main__':
                 logger.record_tabular("iters", num_iters)
                 logger.record_tabular("episodes", len(info["rewards"]))
                 logger.record_tabular("reward (100 epi mean)", np.mean(info["rewards"][-100:]))
+                logger.record_tabular("reward", np.mean(non_discount_return[-return_len - 1:-1]))
+                logger.record_tabular("discount reward", np.mean(discount_return[-return_len - 1:-1]))
                 if len(info["rewards"]) > 1:
                     tfout.write("%d, %.2f\n" % (info["steps"], np.mean(info["rewards"][-100:])))
                     tfout.flush()
-                value_summary.value[0].simple_value = np.mean(info["rewards"][-100:])
+                value_summary.value[0].simple_value = np.mean(discount_return[-return_len - 1:-1])
+                value_summary.value[1].simple_value = np.mean(non_discount_return[-return_len - 1:-1])
 
                 logger.record_tabular("exploration", exploration.value(num_iters))
                 if args.prioritized:
@@ -401,7 +414,7 @@ if __name__ == '__main__':
                 logger.log("ETA: " + pretty_eta(int(steps_left / fps_estimate)))
                 logger.log()
                 tf_writer.add_summary(value_summary, global_step=num_iters)
-
+                start_steps = num_iters
             # if num_iters % 1000000 == 999999:
             #    avg_score = test_agent()
             #    tfout.write("%.2f\n" % avg_score)

@@ -38,7 +38,7 @@ from baselines.common.schedules import LinearSchedule, PiecewiseSchedule
 from baselines.common.atari_wrappers_deprecated import wrap_dqn
 from baselines.common.azure_utils import Container
 from baselines.deepq.experiments.atari.model import contrastive_model, contrastive_model_general
-from baselines.deepq.experiments.atari.lru_knn_mc import LRU_KNN_MC
+from baselines.deepq.experiments.atari.lru_knn_combine import LRU_KNN_COMBINE
 
 
 def parse_args():
@@ -51,13 +51,13 @@ def parse_args():
     parser.add_argument("--lr", type=float, default=1e-3, help="learning rate for Adam optimizer")
     parser.add_argument("--momentum", type=float, default=0.999, help="momentum for momentum contrastive encoder")
     parser.add_argument("--negative-samples", type=int, default=1, help="numbers for negative samples")
-    parser.add_argument("--knn", type=int, default=1, help="number of k nearest neighbours")
+    parser.add_argument("--knn", type=int, default=4, help="number of k nearest neighbours")
     parser.add_argument("--gamma", type=int, default=0.99, help="which seed to use")
     parser.add_argument("--num-steps", type=int, default=int(5e6),
                         help="total number of steps to run the environment for")
     parser.add_argument("--batch-size", type=int, default=64,
                         help="number of stransitions to optimize at the same time")
-    parser.add_argument("--learning-freq", type=int, default=40,
+    parser.add_argument("--learning-freq", type=int, default=4,
                         help="number of iterations between every optimization step")
     parser.add_argument("--encoder-update-freq", type=int, default=1000,
                         help="number of iterations between every target network update")
@@ -211,15 +211,14 @@ if __name__ == '__main__':
 
     with U.make_session(4) as sess:
         # EMDQN
-        ec_buffer = []
+
         buffer_size = 50000
         latent_dim = args.latent_dim
         input_dim = 220 * 220 * 1 if args.env == "MK" else 84 * 84 * 4
         input_dims = (220, 220, 1) if args.env == "MK" else (84, 84, 4)
         # rng = np.random.RandomState(123456)  # deterministic, erase 123456 for stochastic
         # rp = rng.normal(loc=0, scale=1. / np.sqrt(latent_dim), size=(latent_dim, input_dim))
-        for i in range(env.action_space.n):
-            ec_buffer.append(LRU_KNN_MC(buffer_size, latent_dim, latent_dim, input_dims, 'game'))
+        ec_buffer = LRU_KNN_COMBINE(env.action_space.n, buffer_size, latent_dim, latent_dim, input_dims, 'game')
         # rng = np.random.RandomState(123456)  # deterministic, erase 123456 for stochastic
         # rp = rng.normal(loc=0, scale=1. / np.sqrt(latent_dim), size=(latent_dim, input_dim))
         qec_watch = []
@@ -253,15 +252,9 @@ if __name__ == '__main__':
                 # print(eps,stochastic,np.random.rand(0, 1))
                 q = []
                 for a in range(env.action_space.n):
-                    # print(z[0].shape,h[0].shape)
-                    q_value = ec_buffer[a].knn_value(z[0][0], args.knn)
-                    # q_value, found = ec_buffer[a].act_value(z[0][0], h[0][0], args.knn)
+                    q_value = ec_buffer.knn_value(a, z[0][0], args.knn)
                     q.append(q_value)
-                    # if found:
-                    #     # print("found")
-                    #     qec_found += 1
-                    #     qec_watch.append(q_value)
-                # print("ec",eps,np.argmax(q),q)
+
                 q_max = np.max(q)
                 # print("optimistic q", optimistic_q.shape, np.where(optimistic_q == q_max))
                 max_action = np.where(q == q_max)[0]
@@ -273,8 +266,7 @@ if __name__ == '__main__':
 
 
         def update_kdtree():
-            for a in range(env.action_space.n):
-                ec_buffer[a].update_kdtree()
+            ec_buffer.update_kdtree()
 
 
         def update_ec(sequence):
@@ -289,17 +281,18 @@ if __name__ == '__main__':
             # hashes = hash_func(obses)
             # zs = z_func(obses)
             # print(obses.shape,len(hashes[0]),len(zs[0]),len(Rtds))
-            prev_id = -1
+            prev_id, prev_action = -1, -1
             for a, obs, z, h, Rtd in zip(acts, obses, zs, hs, Rtds):
                 # z = z_func([obs])[0]
                 # h = hash_func([obs])[0][0]
                 # print(np.array(h).shape)
-                qd, prev_id_tmp = ec_buffer[a].peek(z[0][0],h[0][0], Rtd, True, prev_id)
+                qd, prev_id_tmp = ec_buffer.peek(a, z[0][0], h[0][0], Rtd, True, False, prev_id, prev_action)
                 if qd == None:  # new action
                     # print("add",z,h)
-                    prev_id = ec_buffer[a].add(z[0][0], h[0][0], Rtd, prev_id, obs)
+                    prev_id = ec_buffer.add(a, z[0][0], h[0][0], Rtd, prev_id, prev_action, obs)
                 else:
                     prev_id = prev_id_tmp
+                prev_action = a
 
 
         # Create training graph and replay buffer
@@ -338,11 +331,11 @@ if __name__ == '__main__':
 
         # Load the model
         state = maybe_load_model(savedir, container)
-        if state is not None:
-            num_iters, replay_buffer = state["num_iters"], state["replay_buffer"],
-            # monitored_env.set_state(state["monitor_state"])
+        # if state is not None:
+        #     num_iters, replay_buffer = state["num_iters"], state["replay_buffer"],
+        #     # monitored_env.set_state(state["monitor_state"])
 
-        start_time, start_steps = None, 0
+        start_time, start_steps = time.time(), 0
         steps_per_iter = RunningAvg(0.999)
         iteration_time_est = RunningAvg(0.999)
         obs = env.reset()
@@ -384,26 +377,25 @@ if __name__ == '__main__':
                 discount_return.append(0.0)
 
             if (num_iters > 500 * args.batch_size) and (num_iters % args.learning_freq == 0) and args.learning:
-                for i in range(env.action_space.n):
-                    idx_anchor, idx_pos, idx_neg, obs_anchor, key_anchor, key_pos, key_neg = ec_buffer[i].sample(
-                        args.batch_size,
-                        args.negative_samples)
+                place_anchor, place_pos, place_neg, obs_anchor, key_anchor, key_pos, key_neg = ec_buffer.sample(
+                    args.batch_size,
+                    args.negative_samples)
 
-                    # print(np.array(key_neg).shape)
-                    # print("training")
-                    inputs = [[1], obs_anchor, key_pos, key_neg, key_anchor]
-                    total_loss, summary, z_anchor, z_pos, z_neg = train(*inputs)
-                    # update dictionary
-                    ec_buffer[i].update(idx_anchor, z_anchor)
-                    z_pos = np.nan_to_num(z_pos,copy=False)
-                    z_neg = np.nan_to_num(z_neg,copy=False)
-                    z_pos = np.array(z_pos[0])*update_lr + np.array(key_pos)
-                    z_neg = np.array(z_neg[0])*update_lr + np.array(key_neg)
+                # print(np.array(key_neg).shape)
+                # print("training")
+                inputs = [[1], obs_anchor, key_pos, key_neg, key_anchor]
+                total_loss, summary, z_anchor, z_pos, z_neg = train(*inputs)
+                # update dictionary
+                ec_buffer.update(place_anchor, z_anchor)
+                z_pos = np.nan_to_num(z_pos, copy=False)
+                z_neg = np.nan_to_num(z_neg, copy=False)
+                z_pos = np.array(z_pos[0]) * update_lr + np.array(key_pos)
+                z_neg = np.array(z_neg[0]) * update_lr + np.array(key_neg)
 
-                    ec_buffer[i].update(idx_pos, z_pos)
-                    for j in range(args.batch_size):
-                        ec_buffer[i].update(idx_neg[j], z_neg[j])
-                    tf_writer.add_summary(summary, global_step=info["steps"] * env.action_space.n + i)
+                ec_buffer.update(place_pos, z_pos)
+                for j in range(args.batch_size):
+                    ec_buffer.update(place_neg[j], z_neg[j])
+                tf_writer.add_summary(summary, global_step=info["steps"])
 
                 # tf_writer.add_summary(summary,global_step=info["steps"])
                 # Update target network.
@@ -412,27 +404,12 @@ if __name__ == '__main__':
             cur_time = time.time()
             if num_iters % args.tree_update_freq == 0:
                 update_kdtree()
-            # if num_iters == 100:
-            #     print("saving")
-            #     obses, acts, _, _, rs = list(zip(*sequence))
-            #     for i, obs in enumerate(obses):
-            #         cv2.imwrite("./visual/{}.png".format(i), np.array(obs)[:, :, 0])
-            # if num_iters % 2000 == 1999:
-            #     print("qec_mean:", np.mean(qec_watch))
-            #     print("qec_found: %.2f" % (1.0 * qec_found / 2000))
-            #
-            #     qec_summary.value[0].simple_value = np.mean(qec_watch)
-            #     qec_summary.value[1].simple_value = 1.0 * qec_found / 2000
-            #     tf_writer.add_summary(qec_summary, global_step=info["steps"])
-            #     qec_watch = []
-            #     qec_found = 0
-            # sample input to visualize
 
             if start_time is not None:
-                steps_per_iter.update(info['steps'] - start_steps)
+                steps_per_iter.update(1)
                 iteration_time_est.update(time.time() - start_time)
-            # start_time, start_steps = time.time(), num_iters
-            value_summary.value[1].simple_value = num_iters
+            start_time = time.time()
+            value_summary.value[3].simple_value = num_iters
 
             # Save the model and training state.
             '''
@@ -469,13 +446,13 @@ if __name__ == '__main__':
                 value_summary.value[0].simple_value = np.mean(np.mean(info["rewards"][-100:]))
                 qec_summary.value[0].simple_value = np.mean(qec_watch)
                 qec_summary.value[1].simple_value = qec_found / (num_iters - start_steps + 1)
-                if len(info["rewards"]) > 1:
-                    np.mean(info["rewards"][-100:])
-                    tfout.write("%d, %.2f\n" % (info["steps"], np.mean(info["rewards"][-100:])))
-                    tfout.flush()
+                # if len(info["rewards"]) > 1:
+                #                 #     np.mean(info["rewards"][-100:])
+                #                 #     tfout.write("%d, %.2f\n" % (info["steps"], np.mean(info["rewards"][-100:])))
+                #                 #     tfout.flush()
                 logger.record_tabular("exploration", exploration.value(num_iters))
-                if args.prioritized:
-                    logger.record_tabular("max priority", replay_buffer._max_priority)
+                # if args.prioritized:
+                #     logger.record_tabular("max priority", replay_buffer._max_priority)
                 fps_estimate = (float(steps_per_iter) / (float(iteration_time_est) + 1e-6)
                                 if steps_per_iter._value is not None else "calculating...")
                 logger.dump_tabular()

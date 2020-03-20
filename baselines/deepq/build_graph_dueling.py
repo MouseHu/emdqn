@@ -221,7 +221,7 @@ def build_train_dueling(make_obs_ph, q_func, model_func, num_actions, optimizer,
             imitation_loss = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(labels=imitate_act_t_ph, logits=q_t),
                                        axis=1)
             print(imitation_loss.shape)
-            errors = U.huber_loss(td_error) + 0.1*imitation_loss
+            errors = U.huber_loss(td_error) + imitation_loss
         else:
             errors = U.huber_loss(td_error)
         total_summary = tf.summary.scalar("total error", tf.reduce_mean(errors))

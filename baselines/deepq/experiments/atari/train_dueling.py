@@ -39,6 +39,7 @@ from baselines.common.azure_utils import Container
 from baselines.deepq.experiments.atari.model import contrastive_model, rp_model, model
 # from baselines.deepq.experiments.atari.lru_knn_ucb import LRU_KNN_UCB
 from baselines.deepq.experiments.atari.lru_knn_ucb import LRU_KNN_UCB
+from baselines.deepq.experiments.atari.lru_knn_ucb_gpu import LRU_KNN_UCB_GPU
 from baselines.common.atari_lib import create_atari_environment
 
 
@@ -215,7 +216,7 @@ if __name__ == '__main__':
 
         buffer_size = 1000000
         # input_dim = 1024
-        ec_buffer = LRU_KNN_UCB(buffer_size, args.latent_dim, 'game', mode=args.mode)
+        ec_buffer = LRU_KNN_UCB_GPU(buffer_size, args.latent_dim, 'game', mode=args.mode)
         # rng = np.random.RandomState(123456)  # deterministic, erase 123456 for stochastic
         # rp = rng.normal(loc=0, scale=1. / np.sqrt(latent_dim), size=(latent_dim, input_dim))
         qecwatch = []
@@ -292,8 +293,8 @@ if __name__ == '__main__':
             (args.end_training, 1.0),
             # (args.end_training+1, 1.0),
             # (args.end_training+1, 0.005),
-            (args.end_training + 800000, 0.05),
-            (args.end_training + 1600000, 0.01),
+            (args.end_training + 200000, 0.05),
+            (args.end_training + 400000, 0.01),
             # (approximate_num_iters / 5, 0.1),
             # (approximate_num_iters / 3, 0.01)
         ], outside_value=0.01)
