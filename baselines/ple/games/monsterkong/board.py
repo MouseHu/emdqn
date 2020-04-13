@@ -80,6 +80,7 @@ class Board(object):
         self.Enemies = []
         self.Allies = []
         self.Coins = []
+        self.Gems = []
         self.Walls = []
         self.Ladders = []
         self.Spikes = []
@@ -100,6 +101,7 @@ class Board(object):
         self.ladderGroup = pygame.sprite.RenderPlain(self.Ladders)
         self.spikeGroup = pygame.sprite.RenderPlain(self.Spikes)
         self.coinGroup = pygame.sprite.RenderPlain(self.Coins)
+        self.gemGroup = pygame.sprite.RenderPlain(self.Gems)
         self.allyGroup = pygame.sprite.RenderPlain(self.Allies)
         self.fireballEndpointsGroup = pygame.sprite.RenderPlain(
             self.FireballEndpoints)
@@ -114,6 +116,7 @@ class Board(object):
             self.Players = []
             self.Allies = []
             self.Coins = []
+            self.Gems = []
             self.Walls = []
             self.Ladders = []
             self.Spikes = []
@@ -144,6 +147,7 @@ class Board(object):
         self.Allies = [Person(self.IMAGES["princess"], (50, 48), 18, 25)]
         self.Allies[0].updateWH(self.Allies[0].image, "H", 0, 25, 25)
         self.Coins = []
+        self.Gems = []
         self.Walls = []
         self.Ladders = []
         self.Spikes = []
@@ -323,7 +327,7 @@ class Board(object):
                 2: ('ladder', self.Ladders, OnBoard, (15 / 2, 15 / 2), []),
                 3: ('coin1', self.Coins, Coin, (15 / 2, 15 / 2), [self._dir]),
                 4: ('spike', self.Spikes, OnBoard, (15 / 2, 15 / 2), []),
-                5: ('gem8', get_list(5), Person, (15 / 2, 15 / 2), [13, 13]),
+                5: ('gem8', self.Gems, Person, (15 / 2, 15 / 2), [13, 13]),
                 6: ('gem6', get_list(6), Person, (15 / 2, 15 / 2), [14, 14]),
                 7: ('coin1', get_list(7), Person, (15 / 2, 15 / 2), [12, 12]),
                 8: ('princess', get_list(8), Person, (15 / 2, - 25 / 2 + 15), [18, 25]),
@@ -335,7 +339,7 @@ class Board(object):
                 2: ('ladder', self.Ladders, OnBoard, (15 / 2, 15 / 2), []),
                 3: ('coin1', self.Coins, Coin, (15 / 2, 15 / 2), [self._dir]),
                 4: ('spike', self.Spikes, OnBoard, (15 / 2, 15 / 2), []),
-                5: ('gem8', get_list(5), Person, (15 / 2, 15 / 2), [14, 14]),
+                5: ('gem8', self.Gems, Person, (15 / 2, 15 / 2), [14, 14]),
                 6: ('gem6', get_list(6), Person, (15 / 2, 15 / 2), [14, 14]),
                 7: ('coin1', get_list(7), Person, (15 / 2, 15 / 2), [14, 14]),
                 8: ('princess', get_list(8), Person, (15 / 2, - 25 / 2 + 15), [18, 25]),
@@ -416,6 +420,11 @@ class Board(object):
             self.createGroups()
 
     # Check for coins collided and add the appropriate score
+    def gemCheck(self, gemCollected):
+        for gem in gemCollected:
+            self.score += self.rewards["positive"]
+            self.createGroups()
+
     def coinCheck(self, coinsCollected):
         for coin in coinsCollected:
             self.score += self.rewards["positive"]
@@ -463,6 +472,7 @@ class Board(object):
         self.ladderGroup.draw(screen)
         self.spikeGroup.draw(screen)
         self.coinGroup.draw(screen)
+        self.gemGroup.draw(screen)
         self.wallGroup.draw(screen)
         self.fireballGroup.draw(screen)
         self.enemyGroup.draw(screen)
@@ -479,6 +489,7 @@ class Board(object):
         self.ladderGroup = pygame.sprite.RenderPlain(self.Ladders)
         self.spikeGroup = pygame.sprite.RenderPlain(self.Spikes)
         self.coinGroup = pygame.sprite.RenderPlain(self.Coins)
+        self.gemGroup = pygame.sprite.RenderPlain(self.Gems)
         self.allyGroup = pygame.sprite.RenderPlain(self.Allies)
         self.fireballEndpointsGroup = pygame.sprite.RenderPlain(
             self.FireballEndpoints)

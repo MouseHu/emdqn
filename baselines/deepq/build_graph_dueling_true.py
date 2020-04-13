@@ -72,7 +72,7 @@ import baselines.common.tf_util as U
 import numpy as np
 
 
-def build_act_dueling(make_obs_ph, q_func, model_func, num_actions, input_dim=84 * 84 * 4, hash_dim=32, use_rp=False,
+def build_act_dueling_true(make_obs_ph, q_func, model_func, num_actions, input_dim=84 * 84 * 4, hash_dim=32, use_rp=False,
                       scope="deepq", reuse=None):
     """Creates the act function:
 
@@ -138,7 +138,7 @@ def build_act_dueling(make_obs_ph, q_func, model_func, num_actions, input_dim=84
         return act
 
 
-def build_train_dueling(make_obs_ph, q_func, model_func, num_actions, optimizer, grad_norm_clipping=None, gamma=1.0,
+def build_train_dueling_true(make_obs_ph, q_func, model_func, num_actions, optimizer, grad_norm_clipping=None, gamma=1.0,
                         scope="deepq", input_dim=84 * 84 * 4, hash_dim=32, use_rp=False, imitate=False, reuse=None):
     """Creates the train function:
 
@@ -188,12 +188,13 @@ def build_train_dueling(make_obs_ph, q_func, model_func, num_actions, optimizer,
     debug: {str: function}
         a bunch of functions to print debug data like q_values.
     """
-    act_f = build_act_dueling(make_obs_ph, q_func, model_func, num_actions, input_dim, hash_dim, use_rp, scope=scope,
+    act_f = build_act_dueling_true(make_obs_ph, q_func, model_func, num_actions, input_dim, hash_dim, use_rp, scope=scope,
                               reuse=reuse)
 
     with tf.variable_scope(scope, reuse=reuse):
         # set up placeholders
         obs_t_input = U.ensure_tf_input(make_obs_ph("obs_t"))
+        obs_tp1_input = U.ensure_tf_input(make_obs_ph("obs_tp1"))
         act_t_ph = tf.placeholder(tf.int32, [None], name="action")
         rew_t_ph = tf.placeholder(tf.float32, [None], name="reward")
         done_mask_ph = tf.placeholder(tf.float32, [None], name="done")
@@ -203,13 +204,18 @@ def build_train_dueling(make_obs_ph, q_func, model_func, num_actions, optimizer,
         # EMDQN
         value_t_ph = tf.placeholder(tf.float32, [None], name='value_t')
         value_tp1_ph = tf.placeholder(tf.float32, [None], name='value_tp1')
-        value_tp1_masked = (1.0 - done_mask_ph) * value_tp1_ph
+
         # q network evaluation
         q_t = q_func(obs_t_input.get(), num_actions, scope="q_func", reuse=True)  # reuse parameters from act
+        q_tp1 = q_func(obs_tp1_input.get(), num_actions, scope="target_q_func",
+                       reuse=False)  # reuse parameters from act
         # q_t_normalized = q_t - tf.max(q_t,)
         q_func_vars = U.scope_vars(U.absolute_scope_name("q_func"))
         q_t_selected = tf.reduce_sum(q_t * tf.one_hot(act_t_ph, num_actions), 1)
+        value_tp1_residual = tf.stop_gradient(tf.reduce_max(q_tp1, axis=1))
+        target_q_func_vars = U.scope_vars(U.absolute_scope_name("target_q_func"))
 
+        value_tp1_masked = (1.0 - done_mask_ph) * (value_tp1_ph + value_tp1_residual)
         # compute RHS of bellman equation
         q_target = rew_t_ph + gamma * value_tp1_masked
 
@@ -220,7 +226,7 @@ def build_train_dueling(make_obs_ph, q_func, model_func, num_actions, optimizer,
         print(q_t.shape)
         if imitate:
             imitation_loss = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(labels=imitate_act_t_ph, logits=q_t),
-                                       axis=1)
+                                           axis=1)
             print(imitation_loss.shape)
             errors = U.huber_loss(td_error) + imitation_loss
         else:
@@ -228,9 +234,10 @@ def build_train_dueling(make_obs_ph, q_func, model_func, num_actions, optimizer,
         total_summary = tf.summary.scalar("total error", tf.reduce_mean(errors))
 
         value_summary = tf.summary.scalar("value_t", tf.reduce_mean(value_t_ph))
+        residual_value_summary = tf.summary.scalar("value_tp1_residual", tf.reduce_mean(value_tp1_residual))
         value_tp1_summary = tf.summary.scalar("value_tp1", tf.reduce_mean(value_tp1_ph))
         q_summary = tf.summary.scalar("estimated qs", tf.reduce_mean(q_t_selected))
-        summaries=[td_summary, total_summary, value_summary, value_tp1_summary, q_summary]
+        summaries = [td_summary, total_summary, value_summary, value_tp1_summary, residual_value_summary, q_summary]
         if imitate:
             imitate_summary = tf.summary.scalar("imitate loss", tf.reduce_mean(imitation_loss))
             summaries.append(imitate_summary)
@@ -246,9 +253,15 @@ def build_train_dueling(make_obs_ph, q_func, model_func, num_actions, optimizer,
         else:
             optimize_expr = optimizer.minimize(weighted_error, var_list=q_func_vars)
 
+        update_target_expr = []
+        for var, var_target in zip(sorted(q_func_vars, key=lambda v: v.name),
+                                   sorted(target_q_func_vars, key=lambda v: v.name)):
+            update_target_expr.append(var_target.assign(var))
+        update_target_expr = tf.group(*update_target_expr)
         # update_target_fn will be called periodically to copy Q network to target Q network
         inputs = [
             obs_t_input,
+            obs_tp1_input,
             act_t_ph,
             rew_t_ph,
             done_mask_ph,
@@ -265,5 +278,5 @@ def build_train_dueling(make_obs_ph, q_func, model_func, num_actions, optimizer,
             outputs=[td_error, summary],
             updates=[optimize_expr]
         )
-
-        return act_f, train
+        update_target = U.function([], [], updates=[update_target_expr])
+        return act_f, train,update_target

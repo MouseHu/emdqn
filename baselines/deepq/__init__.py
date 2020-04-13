@@ -9,5 +9,6 @@ from baselines.deepq.build_graph_contrast import build_act_contrast, build_train
 from baselines.deepq.build_graph_modelbased import build_act_modelbased, build_train_modelbased  # noqa
 from baselines.deepq.build_graph_modelbased_general import build_act_modelbased_general, build_train_modelbased_general
 from baselines.deepq.build_graph_dueling import build_act_dueling, build_train_dueling
+from baselines.deepq.build_graph_dueling_true import build_act_dueling_true, build_train_dueling_true
 from baselines.deepq.simple import learn, load  # noqa
 from baselines.deepq.replay_buffer import ReplayBuffer, PrioritizedReplayBuffer  # noqa

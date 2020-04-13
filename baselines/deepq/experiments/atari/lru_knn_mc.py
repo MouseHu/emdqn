@@ -13,10 +13,10 @@ class LRU_KNN_MC(object):
         self.env_name = env_name
         self.capacity = capacity
         self.states = np.empty((capacity, z_dim), dtype=np.float32)  # learned keys
-        self.prev_action = -1*np.ones((capacity,), dtype=np.int)  # learned keys
-        self.next_action = -1*np.ones((capacity,), dtype=np.int)  # learned keys
-        self.next_id = -1*np.ones((capacity,), dtype=np.int)  # learned keys
-        self.prev_id = -1*np.ones((capacity,), dtype=np.int)  # learned keys
+        self.prev_action = -1 * np.ones((capacity,), dtype=np.int)  # learned keys
+        self.next_action = -1 * np.ones((capacity,), dtype=np.int)  # learned keys
+        self.next_id = -1 * np.ones((capacity,), dtype=np.int)  # learned keys
+        self.prev_id = -1 * np.ones((capacity,), dtype=np.int)  # learned keys
         self.hashes = np.empty((capacity, hash_dim), dtype=np.float32)  # fixed keys
         # self.hashes = dict()  # fixed keys
         self.obses = np.empty((capacity,) + obs_dim, dtype=np.uint8)
@@ -108,7 +108,7 @@ class LRU_KNN_MC(object):
         return idxes
 
     def act_value(self, key, h, knn, verbose=True):
-        value, _ = self.peek(h, None, modify=False, verbose=verbose)
+        value, _ = self.peek(None, h, None, modify=False, verbose=verbose)
         if value is not None:
             return value, True
         else:

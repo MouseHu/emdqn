@@ -38,9 +38,8 @@ from baselines.common.schedules import LinearSchedule, PiecewiseSchedule
 from baselines.common.atari_wrappers_deprecated import wrap_dqn
 from baselines.common.azure_utils import Container
 from baselines.deepq.experiments.atari.model import contrastive_model, rp_model, model
-from baselines.deepq.experiments.atari.lru_knn_ucb import LRU_KNN_UCB
-from baselines.deepq.experiments.atari.lru_knn_ucb_gpu import LRU_KNN_UCB_GPU
-from baselines.deepq.experiments.atari.lru_knn_ucb_gpu_fixmem import LRU_KNN_UCB_GPU_FIXMEM
+
+from baselines.deepq.experiments.atari.lru_knn_count_gpu_fixmem import LRU_KNN_COUNT_GPU_FIXMEM
 from baselines.common.atari_lib import create_atari_environment
 
 
@@ -64,13 +63,13 @@ def parse_args():
                         help="number of transitions to optimize at the same time")
     parser.add_argument("--learning-freq", type=int, default=16,
                         help="number of iterations between every optimization step")
-    parser.add_argument("--target-update-freq", type=int, default=10000,
+    parser.add_argument("--target-update-freq", type=int, default=5000,
                         help="number of iterations between every target network update")
     parser.add_argument("--knn", type=int, default=4, help="number of k nearest neighbours")
     parser.add_argument("--end_training", type=int, default=0, help="number of pretrain steps")
     parser.add_argument('--map_config', type=str,
                         help='The map and config you want to run in MonsterKong.',
-                        default='../../../ple/configs/config_ppo_mk_large.py')
+                        default='../../../ple/configs/config_ppo_mk_hard_2.py')
     # Bells and whistles
     # Checkpointing
     parser.add_argument("--save-dir", type=str, default=None,
@@ -222,8 +221,8 @@ if __name__ == '__main__':
         ec_buffer = []
         for a in range(env.action_space.n):
             ec_buffer.append(
-                LRU_KNN_UCB_GPU_FIXMEM(buffer_size, args.latent_dim, 'game', action=a, mode=args.mode,
-                                       num_actions=env.action_space.n, knn=args.knn))
+                LRU_KNN_COUNT_GPU_FIXMEM(buffer_size, args.latent_dim, 'game', action=a,
+                                         num_actions=env.action_space.n, knn=args.knn))
         # rng = np.random.RandomState(123456)  # deterministic, erase 123456 for stochastic
         # rp = rng.normal(loc=0, scale=1. / np.sqrt(latent_dim), size=(latent_dim, input_dim))
         qecwatch = []
@@ -235,15 +234,8 @@ if __name__ == '__main__':
             './results/result_%s_contrast_%s' % (args.env, args.comment), 'w+')
 
 
-        def act_value_thread(a, zs, qs, finds):
-            qs[a], _, _, find = ec_buffer[a].act_value(zs, args.knn)
-            finds += find
-            # b.wait()
-
-
         def act_baseline(z, stochastic=0, update_eps=-1):
             global eps, qecwatch, qec_found, num_iters
-            # print(ob.shape)
             z = np.array(z).reshape((args.latent_dim))
             if update_eps >= 0:
                 eps = update_eps
@@ -251,47 +243,28 @@ if __name__ == '__main__':
                 acts = np.random.randint(0, env.action_space.n)
                 return acts
             else:
-                # print(eps,stochastic,np.random.rand(0, 1))
                 qs = np.zeros((env.action_space.n, 1))
                 finds = np.zeros((1,))
-                # finds = np.zeros((100,))
-                # threads = []
-                # barrier = Barrier(env.action_space.n)
                 for a in range(env.action_space.n):
-                    # t = Thread(target=act_value_thread, args=(a, np.array([z]), qs, finds))
-                    # threads.append(t)
-                    # t.start()
-                    qs[a], _, _, find = ec_buffer[a].act_value(np.array([z]), args.knn)
+                    qs[a], _, find = ec_buffer[a].act_value(np.array([z]), args.knn)
                     finds += sum(find)
-                # for t in threads:
-                #     t.join()
+
                 q_max = np.max(qs)
-                # print("optimistic q", optimistic_q.shape, np.where(optimistic_q == q_max))
                 max_action = np.where(qs == q_max)[0]
-                # print(max_action)
                 action_selected = np.random.randint(0, len(max_action))
-                # print("ec",eps,np.argmax(q),q)
                 return max_action[action_selected]
-                # print("ec",eps,np.argmax(q),
 
 
         def state_value(zs):
             batch_size = len(zs)
             qs = np.zeros((env.action_space.n, batch_size))
+            inrs = np.zeros((env.action_space.n, batch_size))
             finds = np.zeros((batch_size,))
-            # barrier = Barrier(env.action_space.n)
             for a in range(env.action_space.n):
-                # t = Thread(target=act_value_thread, args=(a, zs, qs, finds))
-                # state_value_threads.append(t)
-                # t.start()
-                qs[a], _, _, find = ec_buffer[a].act_value(zs, args.knn)
+                qs[a], inrs[a], find = ec_buffer[a].act_value(zs, args.knn)
                 finds += sum(find)
-            # for t in threads:
-            #     t.join()
-            # print(qs)
             qs = np.transpose(qs)
             q_max = np.max(qs, axis=1)
-            # print(qs.shape,q_max.shape)
             actions_onehot = []
             for i in range(batch_size):
                 max_actions = np.where(qs[i] == q_max[i])[0]
@@ -299,9 +272,8 @@ if __name__ == '__main__':
                 action_onehot = np.zeros((env.action_space.n,))
                 action_onehot[max_actions[action_selected]] = 1
                 actions_onehot.append(action_onehot)
-            # print(max_action)
 
-            return q_max, np.array(actions_onehot), finds
+            return q_max, np.transpose(inrs), np.array(actions_onehot), finds
 
 
         def update_kdtree():
@@ -312,27 +284,26 @@ if __name__ == '__main__':
         def update_ec(sequence):
             _, _, acts, _ = list(zip(*sequence))
             # print(np.bincount(acts))
-            Rtd = 0.
-            Rtds = [0]
+            exRtd = 0.
+            inRtd = 0.
+            inr = 0
             for seq in reversed(sequence):
                 s, z, a, r = seq
                 a = int(a)
-                # z = s.flatten()
-                # z = np.dot(rp, s.flatten())
-                Rtd = r + args.gamma * Rtd
-                Rtds.append(Rtd)
+                exRtd = r + args.gamma * exRtd
+                inRtd = inr + args.gamma * inRtd
                 z = np.array(z).reshape((args.latent_dim))
-                # print(a, type(a))
-                q, _, _ = ec_buffer[a].peek(z, Rtd, a, True)
+                # q, _ = ec_buffer[a].peek(z, exRtd, inRtd, True)
+                qs,inrs = zip(*[ec_buffer[i].peek(z,exRtd,inRtd,False) for i in range(env.action_space.n)])
+                q = qs[a]
+                inr = np.max(inrs)
                 if q is None:  # new action
-                    # print(a,type(a))
-                    # print(Rtd)
-                    ec_buffer[a].add(z, Rtd, a)
-            return Rtds
+                    ec_buffer[a].add(z, exRtd, inRtd)
+                    inr = ec_buffer[a].rmax
 
 
         # Create training graph and replay buffer
-        act, train = deepq.build_train_dueling(
+        act, train, update_target = deepq.build_train_dueling_true(
             make_obs_ph=lambda name: U.Uint8Input(env.observation_space.shape, name=name),
             model_func=rp_model if args.rp else contrastive_model,
             q_func=model,
@@ -346,16 +317,16 @@ if __name__ == '__main__':
         approximate_num_iters = args.num_steps
 
         exploration = PiecewiseSchedule([
-            (0, 1.0),
+            (0, 1),
             (args.end_training, 1.0),
             # (args.end_training+1, 1.0),
             # (args.end_training+1, 0.005),
-            # (args.end_training + 10000, 1.0),
-            (args.end_training + 200000, 0.005),
-            # (args.end_training + 400000, 0.01),
+            (args.end_training + 10000, 1.0),
+            (args.end_training + 200000, 0.05),
+            (args.end_training + 400000, 0.01),
             # (approximate_num_iters / 5, 0.1),
             # (approximate_num_iters / 3, 0.01)
-        ], outside_value=0.005)
+        ], outside_value=0.01)
 
         replay_buffer = ReplayBufferHash(args.replay_buffer_size)
 
@@ -419,25 +390,27 @@ if __name__ == '__main__':
             if num_iters % args.learning_freq == 0 and len(replay_buffer) > args.batch_size * (
                     args.negative_samples + 1) and not args.baseline:
                 # train vae
-                obses_t, hashes_t, actions, rewards, obses_tp1, hashes_tp1, dones = replay_buffer.sample(
+                obses_t, hashes_t, actions_t, rewards, obses_tp1, hashes_tp1, dones = replay_buffer.sample(
                     args.batch_size)
                 # info = [ec_buffer.act_value(h, args.knn) for h in hashes_t]
                 # test = tuple(zip(*state_value(hashes_t)))
                 # print(test,len(test))
-                values_t, actions_t, find_t = state_value(hashes_t)
-                values_tp1, actions_tp1, find_tp1 = state_value(hashes_tp1)
+                values_t, inrs_t, imit_actions_t, find_t = state_value(hashes_t)
+                values_tp1, inrs_tp1, imit_actions_tp1, find_tp1 = state_value(hashes_tp1)
                 # values_tp1, actions_tp1, find_tp1 = tuple(zip(*[state_value(h) for h in hashes_tp1]))
                 qec_summary.value[0].simple_value = np.mean(find_t)
                 qec_summary.value[1].simple_value = np.mean(find_tp1)
+                # print(actions_t.shape,inrs_t.shape)
+                rewards += inrs_t[np.arange(args.batch_size,dtype=np.int), np.squeeze(actions_t)]
                 # actions_t = [np.array(x[1]) if x[1] is not None else np.ones(
                 #     (env.action_space.n,)) / env.action_space.n for x in info]
                 # print(actions_t)
                 # print(np.array(actions_t).shape)
                 # values_tp1 = [ec_buffer.act_value(h, args.knn)[0] for h in hashes_tp1]
-                inputs = [obses_t, np.array(actions).squeeze(), rewards, dones, np.ones_like(dones), values_t,
+                inputs = [obses_t, obses_tp1, np.array(actions_t).squeeze(), rewards, dones, np.ones_like(dones), values_t,
                           values_tp1]
                 if args.imitate:
-                    inputs.append(actions_t)
+                    inputs.append(imit_actions_t)
                 total_errors, summary = train(*inputs)
                 tf_writer.add_summary(summary, global_step=num_iters)
                 tf_writer.add_summary(qec_summary, global_step=total_steps)
@@ -447,6 +420,7 @@ if __name__ == '__main__':
             cur_time = time.time()
             if num_iters % args.target_update_freq == 0 and num_iters > args.end_training:  # NOTE: why not 10000?
                 update_kdtree()
+                update_target()
             if start_time is not None:
                 steps_per_iter.update(1)
                 iteration_time_est.update(time.time() - start_time)

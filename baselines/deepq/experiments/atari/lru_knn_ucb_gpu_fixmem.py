@@ -1,12 +1,11 @@
 import numpy as np
-from baselines.deepq.experiments.atari.knn_cuda import knn as knn_cuda
+from baselines.deepq.experiments.atari.knn_cuda_fixmem import knn as knn_cuda_fixmem
 
 
 # each action -> a lru_knn buffer
-class LRU_KNN_UCB_GPU(object):
-    def __init__(self, capacity, z_dim, env_name, action, mode="mean", num_actions=6,knn=4):
+class LRU_KNN_UCB_GPU_FIXMEM(object):
+    def __init__(self, capacity, z_dim, env_name, action, mode="mean", num_actions=6, knn=4):
         self.action = action
-        self.knn = knn
         self.env_name = env_name
         self.capacity = capacity
         self.num_actions = num_actions
@@ -22,13 +21,18 @@ class LRU_KNN_UCB_GPU(object):
         self.buildnum_max = 256
         self.bufpath = './buffer/%s' % self.env_name
         self.mode = mode
-        self.threshold = 1e-2
+        self.threshold = 1e-7
+        self.knn = knn
+        self.address = knn_cuda_fixmem.allocate(capacity, z_dim, 32, knn)
 
     def peek(self, key, value_decay, action=-1, modify=False):
-        if self.curr_capacity ==0 :
+        if self.curr_capacity == 0:
             return None, None, None
-
-        dist, ind = knn_cuda.knn(np.transpose(np.array([key])), np.transpose(self.states[:self.curr_capacity]), 1)
+        # print(np.array(key).shape)
+        key = np.array(key, copy=True)
+        if len(key.shape) == 1:
+            key = key[np.newaxis, ...]
+        dist, ind = knn_cuda_fixmem.knn(self.address, key, 1, self.curr_capacity)
         dist, ind = np.transpose(dist), np.transpose(ind - 1)
         ind = ind[0][0]
         # print(dist.shape,ind.shape)
@@ -56,8 +60,10 @@ class LRU_KNN_UCB_GPU(object):
         # knn = min(self.curr_capacity, knn)
         if self.curr_capacity < knn:
             return 0.0, None, 1.0
-
-        dist, ind = knn_cuda.knn(np.transpose(key), np.transpose(self.states[:self.curr_capacity]), knn)
+        key = np.array(key, copy=True)
+        if len(key.shape) == 1:
+            key = key[np.newaxis, ...]
+        dist, ind = knn_cuda_fixmem.knn(self.address, key, knn, self.curr_capacity)
         dist, ind = np.transpose(dist), np.transpose(ind - 1)
         coeff = np.exp(dist[0])
         coeff = coeff / np.sum(coeff)
@@ -91,7 +97,10 @@ class LRU_KNN_UCB_GPU(object):
                 exact_refer.append(False)
             return values, actions, counts, np.array(exact_refer)
 
-        dist, ind = knn_cuda.knn(np.transpose(key), np.transpose(self.states[:self.curr_capacity]), knn)
+        key = np.array(key, copy=True)
+        if len(key.shape) == 1:
+            key = key[np.newaxis, ...]
+        dist, ind = knn_cuda_fixmem.knn(self.address, key, knn, self.curr_capacity)
         dist, ind = np.transpose(dist), np.transpose(ind - 1)
         # print(dist.shape, ind.shape, len(key), key.shape)
         # print("nearest dist", dist[0][0])
@@ -122,6 +131,7 @@ class LRU_KNN_UCB_GPU(object):
         return values, actions, counts, np.array(exact_refer)
 
     def add(self, key, value_decay, action=-1):
+        # print(np.array(key).shape)
         if self.curr_capacity >= self.capacity:
             # find the LRU entry
             old_index = np.argmin(self.lru)
@@ -129,6 +139,7 @@ class LRU_KNN_UCB_GPU(object):
             self.q_values_decay[old_index] = value_decay
             self.lru[old_index] = self.tm
             self.count[old_index] = 2
+            knn_cuda_fixmem.add(self.address, old_index, np.array(key))
             if action >= 0:
                 self.best_action[old_index, action] = 1
         else:
@@ -136,6 +147,7 @@ class LRU_KNN_UCB_GPU(object):
             self.q_values_decay[self.curr_capacity] = value_decay
             self.lru[self.curr_capacity] = self.tm
             self.count[self.curr_capacity] = 2
+            knn_cuda_fixmem.add(self.address, self.curr_capacity, np.array(key))
             if action >= 0:
                 self.best_action[self.curr_capacity, action] = 1
             self.curr_capacity += 1

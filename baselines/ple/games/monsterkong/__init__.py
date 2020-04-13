@@ -99,7 +99,7 @@ class MonsterKong(PyGameWrapper):
         # Get the appropriate groups
         self.fireballGroup = self.newGame.fireballGroup
         self.coinGroup = self.newGame.coinGroup
-
+        self.gemGroup = self.newGame.gemGroup
         # Create fireballs as required, depending on the number of monsters in
         # our game at the moment
         # if self.fireballTimer == 0:
@@ -264,7 +264,10 @@ class MonsterKong(PyGameWrapper):
         # Collect a coin
         coinsCollected = pygame.sprite.spritecollide(
             self.newGame.Players[0], self.coinGroup, True)
+        gemCollected = pygame.sprite.spritecollide(
+            self.newGame.Players[0], self.gemGroup, True)
         self.newGame.coinCheck(coinsCollected)
+        self.newGame.gemCheck(gemCollected)
 
         # Check if you have reached the princess
         self.newGame.checkVictory()
