@@ -66,6 +66,9 @@ class LRU_KNN_COMBINE_BP(object):
         # print(sa_pair)
         return sa_pair
 
+    # def internal_value(self, state):
+    #     index = self.peek(state)
+
     def reward_update(self, stack):
         while len(stack) > 0:
             s0, s, a, r_i, r_e, d, r_loop = stack.pop(-1)
@@ -92,7 +95,9 @@ class LRU_KNN_COMBINE_BP(object):
                 #     print("????")
                 #     self.ancestor(s, a)
                 #     exit(-1)
+                # r_i = self.internal_value(self.ec_buffer[a].states[s])
                 r_i = max([buffer.internal_value[s] for buffer in self.ec_buffer])
+                r_i = 0 if len(self.ancestor(s, a)) > 1 else r_i
                 if d > 0:
                     r_loop = r_loop * self.gamma + r
                 for sa_pair in self.ancestor(s, a):
@@ -173,7 +178,7 @@ class LRU_KNN_COMBINE_BP(object):
         for i in range(len(sequence)):
             rtn = Rtn.pop()
             _, a, r, _, done = sequence[i]
-            s = state_index[-i-1]
+            s = state_index[-i - 1]
             # print("put ",s,a)
             stack.append((s, s, a, (1 - done) * self.rmax, rtn, 0, 0))
             self.reward_update(stack)

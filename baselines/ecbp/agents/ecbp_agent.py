@@ -37,9 +37,11 @@ class ECBPAgent(object):
         self.obs = obs
         z = np.array(self.hash_func(np.array(obs))).reshape((self.latent_dim,))
         self.z = z
+        self.steps += 1
         # instance_inr = np.max(self.exploration_coef(self.count[obs]))
-        if np.random.random() < max(0, self.exploration_schedule.value(self.steps)) and is_train:
+        if (np.random.random() < max(0, self.exploration_schedule.value(self.steps))) and is_train:
             action = np.random.randint(0, self.num_actions)
+            print("random")
             return action
         else:
             extrinsic_qs = np.zeros((self.num_actions, 1))
@@ -47,14 +49,20 @@ class ECBPAgent(object):
             finds = np.zeros((1,))
             # print(self.num_actions)
             for a in range(self.num_actions):
-                # print(a, end=" ")
+                print(a, end="-")
                 extrinsic_qs[a], intrinsic_qs[a], find = self.ec_buffer.act_value(np.array([z]), a, self.knn)
+                print(find,end="-")
+
                 # print(" ")
                 finds += sum(find)
             if is_train:
                 q = extrinsic_qs + intrinsic_qs
             else:
                 q = extrinsic_qs
+            print(" ")
+            print("train:", is_train, np.squeeze(extrinsic_qs))
+            if is_train:
+                print(np.squeeze(intrinsic_qs))
             q_max = np.max(q)
             max_action = np.where(q >= q_max - 1e-5)[0]
             action_selected = np.random.randint(0, len(max_action))
@@ -63,7 +71,7 @@ class ECBPAgent(object):
     def observe(self, action, reward, state_tp1, done, train=True):
         if not train:
             return
-        z_tp1 = np.array(self.hash_func(np.array(state_tp1)[np.newaxis,...])).reshape((self.latent_dim,))
+        z_tp1 = np.array(self.hash_func(np.array(state_tp1)[np.newaxis, ...])).reshape((self.latent_dim,))
         self.sequence.append((self.z, action, reward, z_tp1, done))
 
         if done:

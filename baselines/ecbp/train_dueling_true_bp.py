@@ -1,7 +1,7 @@
 from baselines.ecbp.common import *
 from baselines.ecbp.agents.ecbp_agent import ECBPAgent
 from baselines.ecbp.agents.human_agent import HumanAgent
-from baselines.ecbp.agents.hyber_agent import HyberAgent
+from baselines.ecbp.agents.hyber_agent import HyberAgent,HyberAgent2
 
 import sys
 
@@ -26,14 +26,14 @@ if __name__ == '__main__':
         # (args.end_training + 4000000, 0.01),
         # (approximate_num_iters / 5, 0.1),
         # (approximate_num_iters / 3, 0.01)
-    ], outside_value=0.01)
+    ], outside_value=0)
     ecbp_agent = ECBPAgent(rp_model if args.rp else contrastive_model, exploration, env.observation_space.shape,
                            args.lr,
                            args.buffer_size, env.action_space.n, args.latent_dim, args.gamma, args.knn, tf_writer,
                            args.bp)
-    # human_agent = HumanAgent({"w": 3, "s": 4, "d": 1, "a": 0, "x": 2, "p": 5})
-    # agent = HyberAgent(ecbp_agent, human_agent, 30)
-    agent=ecbp_agent
+    human_agent = HumanAgent({"w": 3, "s": 4, "d": 1, "a": 0, "x": 2, "p": 5})
+    agent = HyberAgent2(ecbp_agent, human_agent, 30)
+    # agent=ecbp_agent
     value_summary = tf.Summary()
     # qec_summary = tf.Summary()
     value_summary.value.add(tag='discount_reward_mean')

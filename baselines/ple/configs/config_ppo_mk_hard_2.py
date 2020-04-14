@@ -140,7 +140,7 @@ map_config = {
     # work automatically only for aigym wrapped version
     'fps': 1000,
     'frame_skip': 3,
-    'force_fps': True,  # set to true to make the game run as fast as possible
+    'force_fps': False,  # set to true to make the game run as fast as possible
     'display_screen': True,
     'episode_length': 2400,
     'episode_end_sleep': 0.,  # sec

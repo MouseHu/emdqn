@@ -100,10 +100,11 @@ class LRU_KNN_GPU_BP(object):
                 internal_value = self.internal_value[ind[i][0]]
                 self.lru[ind[i][0]] = self.tm
                 self.tm += 0.01
+                print(ind[i][0],end=" ")
             else:
                 exact_refer.append(False)
                 for j, index in enumerate(ind[i]):
-                    internal_value += (self.internal_value[index]) * coeff[j]
+                    # external_value += (self.external_value[index]) * coeff[j]
 
                     # print(coeff.shape, index, i)
                     self.lru[index] = self.tm
