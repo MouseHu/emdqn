@@ -51,62 +51,121 @@ class LRU_KNN_COMBINE_BP(object):
 
         return index
 
-    def act_value(self, keys, action, knn):
-        return self.ec_buffer[action].act_value(keys, knn)
+    def act_value(self, keys, action, knn, bp):
+        return self.ec_buffer[action].act_value(keys, knn, bp)
 
     def ancestor(self, state, action):
-        sa_pair = copy.deepcopy(self.ec_buffer[action].prev_id[state])
+        sao_pair = copy.deepcopy(self.ec_buffer[action].prev_id[state])
         for bro in self.ec_buffer[action].brothers[state]:
-            sa_pair_bro = self.ec_buffer[bro[1]].prev_id[bro[0]]
-            for pair in sa_pair_bro:
-                if pair not in sa_pair:
-                    sa_pair.append(pair)
+            sao_pair_bro = self.ec_buffer[bro[1]].prev_id[bro[0]]
+            for pair in sao_pair_bro:
+                if pair not in sao_pair:
+                    sao_pair.append(pair)
         # print("bro", (state, action))
         # print(self.ec_buffer[action].prev_id[state])
         # print(sa_pair)
+        sa_pair = [(pair[0], pair[1]) for pair in sao_pair]
         return sa_pair
 
-    # def internal_value(self, state):
-    #     index = self.peek(state)
+    def intrinsic_value(self, state, action):
+        sa_pair = self.ec_buffer[action].brothers[state]
+        sa_pair.append((state, action))
+        actions = np.unique([a for s, a in sa_pair])
+        # actions =
+        if len(actions) < self.num_actions:
+            return 0
+        intrinsic_values = [self.ec_buffer[a].internal_value[s] for s, a in sa_pair]
+        return np.max(intrinsic_values)
 
     def reward_update(self, stack):
         while len(stack) > 0:
             s0, s, a, r_i, r_e, d, r_loop = stack.pop(-1)
-            old_r_e = self.ec_buffer[a].external_value[s]
-            old_r_i = self.ec_buffer[a].internal_value[s]
+            old_r_e = copy.deepcopy(self.ec_buffer[a].external_value[s])
+            # old_r_i = self.ec_buffer[a].internal_value[s]
             r = self.ec_buffer[a].reward[s]
             if self.bp:
                 if s == s0 and d > 0:
-                    # print("circle", self.ec_buffer[a].external_value[s],
-                    #       (r + self.gamma * r_loop) / (1 - self.gamma ** d))
+                    # print("loop update", s, a, (r + self.gamma * r_loop) / (1 - self.gamma ** d),
+                    #       self.ec_buffer[a].external_value[s])
                     self.ec_buffer[a].external_value[s] = max(self.ec_buffer[a].external_value[s],
                                                               (r + self.gamma * r_loop) / (1 - self.gamma ** d))
                     d = 0
                     r_loop = 0
                 self.ec_buffer[a].external_value[s] = max(self.ec_buffer[a].external_value[s], r + self.gamma * r_e)
-            # print("r",r)
-            # print("depth ", d)
-            self.ec_buffer[a].internal_value[s] = min(self.ec_buffer[a].internal_value[s], r_i)
-            if self.ec_buffer[a].internal_value[s] < old_r_i or self.ec_buffer[a].external_value[s] > (old_r_e + 1e-7):
-                # print("updated ", self.ec_buffer[a].external_value[s], old_r_e)
-                # print("r", r)
-                # if self.ec_buffer[a].external_value[s] > 1:
-                #     print(s,a,self.ec_buffer[a].external_value[s] )
-                #     print("????")
-                #     self.ancestor(s, a)
-                #     exit(-1)
-                # r_i = self.internal_value(self.ec_buffer[a].states[s])
-                r_i = max([buffer.internal_value[s] for buffer in self.ec_buffer])
-                r_i = 0 if len(self.ancestor(s, a)) > 1 else r_i
+            # self.ec_buffer[a].internal_value[s] = min(self.ec_buffer[a].internal_value[s], r_i)
+            if self.ec_buffer[a].external_value[s] > (old_r_e + 1e-7):
+                # r_i = max([buffer.internal_value[s] for buffer in self.ec_buffer])
+                # r_i = 0 if len(self.ancestor(s, a)) > 1 else r_i
+                print("extrinsic update", s, a, self.ec_buffer[a].external_value[s], old_r_e)
+
                 if d > 0:
                     r_loop = r_loop * self.gamma + r
                 for sa_pair in self.ancestor(s, a):
-                    # print(sa_pair, d, "debug")
                     stm1, atm1 = sa_pair
-                    if self.ec_buffer[atm1].reward[stm1] == 1:
-                        print("bug", s, a)
                     stack.append((s0, stm1, atm1, r_i, self.ec_buffer[a].external_value[s], d + 1, r_loop))
-                    # self.reward_update(stack)
+
+    def intrinsic_reward_update_iter(self, stack):
+        while len(stack) > 0:
+            s, a, v = stack.pop(-1)
+            old_v_i = self.intrinsic_value(s, a)
+            self.ec_buffer[a].internal_value[s] = min(v, self.ec_buffer[a].internal_value[s])
+            v_i = self.intrinsic_value(s, a)
+            if v_i < old_v_i and v_i < -self.rmax:
+                for sa_pair in self.ancestor(s, a):
+                    s_prev, a_prev = sa_pair
+                    stack.append((s_prev, a_prev, v_i))
+
+    def get_order(self, state, action, state_tp1, action_tp1):
+        sao_pair = copy.deepcopy(self.ec_buffer[action_tp1].prev_id[state_tp1])
+        for bro in self.ec_buffer[action_tp1].brothers[state_tp1]:
+            sao_pair_bro = self.ec_buffer[bro[1]].prev_id[bro[0]]
+            for pair in sao_pair_bro:
+                if pair not in sao_pair:
+                    sao_pair.append(pair)
+        for s, a, order in sao_pair:
+            if s == state and a == action:
+                return order
+        return -1
+
+    def intrinsic_reward_update(self, sa_pair, sa_pair_tm1,debug=True):
+        z_t, action_t, reward_t, z_tp1, done_t = sa_pair
+        index = self.peek(z_t)
+        if debug:
+            print("intrinsic_reward_update_t", index)
+        if index[action_t] < 0:
+            ind_t = self.add(action_t, z_t, 0, reward_t, done_t, index)
+            print("add",ind_t,action_t)
+        else:
+            ind_t = index[action_t]
+        prev_s, prev_a = sa_pair_tm1
+        if (prev_s, prev_a) not in self.ancestor(ind_t, action_t):
+            order = len(self.ancestor(ind_t, action_t))
+            self.ec_buffer[action_t].prev_id[ind_t].append((prev_s, prev_a, order))
+        index_tp1 = self.peek(z_tp1)
+        state_tp1, action_tp1 = np.max(index_tp1), np.argmax(index_tp1)
+        if np.sqrt(np.sum(np.square(z_t - z_tp1))) < 1e-7:
+            # self loop
+            if debug:
+                print("self loop")
+            diminish_reward = -2 * self.rmax
+        elif state_tp1 > 0:
+            order = self.get_order(ind_t, action_t, state_tp1, action_tp1)
+            ancestors = self.ancestor(state_tp1, action_tp1)
+            if (state_tp1, action_tp1) in ancestors:
+                # remove self loop
+                ancestors.remove((state_tp1, action_tp1))
+            if debug:
+                print(ancestors)
+                print("intrinsic update tp1 s{} ,a {},len(ancestors) {},order {}".format(state_tp1, action_tp1, len(ancestors), order), flush=True)
+            diminish_reward = -2 * self.rmax if (len(ancestors) > 1 and order != 0) else 0
+            diminish_reward = -2 * self.rmax if done_t else diminish_reward
+        else:
+            diminish_reward = -2 * self.rmax if done_t else 0
+        if diminish_reward < 0:
+            stack = [(ind_t, action_t, diminish_reward)]
+            self.intrinsic_reward_update_iter(stack)
+
+        return ind_t, action_t
 
     def peek(self, state):
         index = []
@@ -127,58 +186,54 @@ class LRU_KNN_COMBINE_BP(object):
                 act_values.append(-self.rmax)
         return np.max(act_values)
 
-    def update_sequence(self, sequence):
+    def update_sequence(self, sequence, debug):
         Rtn = [0]
         state_index = []
 
         peek_count = 0
         for s, a, r, sp, done in reversed(sequence):
-            if done:
+            if done or not self.bp:
                 rtn = self.gamma * Rtn[-1] + r
             else:
                 rtn = max(self.gamma * Rtn[-1] + r, self.gamma * self.state_value(sp) + r)
             Rtn.append(rtn)
-            # print(rtn)
-            # self.table[s, a] = max(self.table[s, a], Rtn[-1])
             index = self.peek(s)
             ind = index[a]
             if ind < 0:
-                ind = self.add(a, s, Rtn[-1], r, done, index)
+                if debug:
+                    print("wierd")
+                ind = self.add(a, s, rtn, r, done, index)
             else:
                 peek_count += 1
-                # print(a,self.ec_buffer[a].external_value[ind], Rtn[-1])
-                self.ec_buffer[a].external_value[ind] = max(self.ec_buffer[a].external_value[ind], Rtn[-1])
-            self.ec_buffer[a].internal_value[ind] = min(self.ec_buffer[a].internal_value[ind], - done * self.rmax)
+                if self.ec_buffer[a].newly_added[ind]:
+                    if debug:
+                        print("sequence update new", ind, a, self.ec_buffer[a].external_value[ind], rtn)
+                    self.ec_buffer[a].external_value[ind] = rtn
+                    self.ec_buffer[a].newly_added[ind] = False
+                else:
+                    if debug:
+                        print("sequence update", ind, a, max(self.ec_buffer[a].external_value[ind], rtn),
+                              self.ec_buffer[a].external_value[ind])
+                    self.ec_buffer[a].external_value[ind] = max(self.ec_buffer[a].external_value[ind], rtn)
+            # self.ec_buffer[a].internal_value[ind] = min(self.ec_buffer[a].internal_value[ind], - done * self.rmax)
             state_index.append(ind)
-            # if r == 1:
-            #     print("goal", ind, a)
-            # else:
-            #     print("sequence", ind, a)
-            # if prev_s is not None and (prev_s, prev_a) not in self.ec_buffer[a].prev_id[ind]:
-            #     self.ec_buffer[a].prev_id[ind].append((prev_s, prev_a))
-            # print("prev", ind, a)
-            # print(self.ec_buffer[a].prev_id[ind])
-            # prev_s, prev_a = ind, a
-        prev_s, prev_a = None, None
-        for i, sample in enumerate(sequence):
-            s, a, r, sp, done = sample
-            ind = state_index[-i - 1]
-            if prev_s is not None and (prev_s, prev_a) not in self.ec_buffer[a].prev_id[ind]:
-                self.ec_buffer[a].prev_id[ind].append((prev_s, prev_a))
-            prev_s, prev_a = ind, a
+
+        # prev_s, prev_a = None, None
+        # for i, sample in enumerate(sequence):
+        #     s, a, r, sp, done = sample
+        #     ind = state_index[-i - 1]
+        #     if prev_s is not None and (prev_s, prev_a) not in self.ec_buffer[a].prev_id[ind]:
+        #         self.ec_buffer[a].prev_id[ind].append((prev_s, prev_a))
+        #     prev_s, prev_a = ind, a
 
         print("peek count", peek_count / len(sequence))
-        # prev_s = None
-        # for s, a, r, _, done in reversed(sequence):
-        #     if prev_s is not None:
-        #         print(np.linalg.norm(s - prev_s))
-        #     prev_s = s
-        stack = []
-        Rtn.pop()
-        for i in range(len(sequence)):
-            rtn = Rtn.pop()
-            _, a, r, _, done = sequence[i]
-            s = state_index[-i - 1]
-            # print("put ",s,a)
-            stack.append((s, s, a, (1 - done) * self.rmax, rtn, 0, 0))
-            self.reward_update(stack)
+        if self.bp:
+            stack = []
+            Rtn.pop()
+            for i in range(len(sequence)):
+                rtn = Rtn.pop()
+                _, a, r, _, done = sequence[i]
+                s = state_index[-i - 1]
+                # print("put ",s,a)
+                stack.append((s, s, a, (1 - done) * self.rmax, rtn, 0, 0))
+                self.reward_update(stack)

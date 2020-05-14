@@ -7,14 +7,18 @@ import tempfile
 import time
 
 import sys
-
+import yaml
 from baselines.deepq.dqn_utils import *
 import baselines.common.tf_util as U
 import datetime
 from baselines import logger
 from baselines import deepq
+from baselines.ecbp.env.fourrooms import Fourrooms
 from baselines.common.atari_wrappers_deprecated import FrameStack
 from baselines.deepq.replay_buffer import ReplayBufferHash, PrioritizedReplayBuffer
+from baselines.common.atari_lib import MKPreprocessing
+from baselines.common.atari_lib import DoomPreprocessing
+from baselines.doom.environment import DoomEnvironment
 from baselines.common.misc_util import (
     boolean_flag,
     pickle_load,
@@ -34,6 +38,7 @@ from baselines.deepq.experiments.atari.model import contrastive_model, rp_model,
 # from baselines.deepq.experiments.atari.lru_knn_count_gpu_fixmem import LRU_KNN_COUNT_GPU_FIXMEM
 from baselines.deepq.experiments.atari.lru_knn_combine_bp import LRU_KNN_COMBINE_BP
 from baselines.common.atari_lib import create_atari_environment
+import logging
 
 
 # from gym.wrappers.monitoring.video_recorder import VideoRecorder
@@ -47,7 +52,7 @@ def parse_args():
     parser.add_argument("--gamma", type=int, default=0.99, help="which seed to use")
     # Core DQN parameters
     parser.add_argument("--mode", type=str, default="max", help="mode of episodic memory")
-    parser.add_argument("--buffer-size", type=int, default=int(1e5), help="replay buffer size")
+    parser.add_argument("--buffer-size", type=int, default=int(1e6), help="replay buffer size")
     parser.add_argument("--lr", type=float, default=1e-4, help="learning6 rate for Adam optimizer")
     parser.add_argument("--num-steps", type=int, default=int(5e6),
                         help="total number of steps to run the environment for")
@@ -62,7 +67,10 @@ def parse_args():
     parser.add_argument("--end_training", type=int, default=0, help="number of pretrain steps")
     parser.add_argument('--map_config', type=str,
                         help='The map and config you want to run in MonsterKong.',
-                        default='../ple/configs/config_ppo_mk_hard_2.py')
+                        default='../ple/configs/config_ppo_mk.py')
+    parser.add_argument('--param_dir', type=str,
+                        help='The map and config you want to run in MonsterKong.',
+                        default='../doom/')
     # Bells and whistles
     # Checkpointing
     parser.add_argument("--save-dir", type=str, default=None,
@@ -95,9 +103,25 @@ def parse_args():
     boolean_flag(parser, "baseline", default=False, help="if baseline use episodic memory instead of network")
     boolean_flag(parser, "imitate", default=False, help="if baseline use episodic memory instead of network")
     boolean_flag(parser, "rp", default=False, help="whether or not to use random projection")
+    boolean_flag(parser, "debug", default=False, help="whether or not to output detail info")
     # EMDQN
     boolean_flag(parser, "train-latent", default=False, help="whether or not to further train latent")
     return parser.parse_args()
+
+
+def load_params(subdir, experiment):
+    with open("%s/params.yaml" % subdir, 'rb') as stream:
+        params = yaml.load(stream)
+    experiment_params = params['env_params']['experiments'][experiment]
+    for (key, val) in experiment_params.items():
+        params['env_params'][key] = val
+    params['env_params'].pop('experiments')
+    for (key, val) in params.items():
+        if (not "_params" in key) and (key != 'net_arches'):
+            params['env_params'][key] = val
+            params['model_params'][key] = val
+            params['agent_params'][key] = val
+    return params
 
 
 def make_env(game_name):
@@ -128,6 +152,13 @@ def create_env(args):
 
         env = gym.make('MonsterKong-v0')
         env = ProcessFrame(env)
+        env = MKPreprocessing(env, frame_skip=3, no_jump=True)
+    elif args.env == "GW":
+        env = Fourrooms()
+    elif args.env in ["tmaze"]:
+        params = load_params(args.param_dir, args.env)
+        env = DoomEnvironment(**params['env_params'])
+        env = DoomPreprocessing(env, frame_skip=4)
     else:
         env = create_atari_environment(args.env, sticky_actions=False)
         env = FrameStack(env, 4)
@@ -135,3 +166,21 @@ def create_env(args):
         set_global_seeds(args.seed)
         env.unwrapped.seed(args.seed)
     return env
+
+
+def make_logger(name, filename, stream_level=logging.ERROR, file_level=logging.DEBUG):
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+    # create file handler which logs even debug messages
+    fh = logging.FileHandler(filename)
+    fh.setLevel(file_level)
+    # create console handler with a higher log level
+    ch = logging.StreamHandler()
+    ch.setLevel(stream_level)
+    # create formatter and add it to the handlers
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    fh.setFormatter(formatter)
+    ch.setFormatter(formatter)
+    # add the handlers to the logger
+    logger.addHandler(fh)
+    logger.addHandler(ch)

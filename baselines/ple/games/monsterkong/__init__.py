@@ -114,8 +114,8 @@ class MonsterKong(PyGameWrapper):
         # self.fireballTimer = (self.fireballTimer + 1) % 70
 
         # Animate the coin
-        for coin in self.coinGroup:
-            coin.animateCoin()
+        # for coin in self.coinGroup:
+        #     coin.animateCoin()
 
         # To check collisions below, we move the player downwards then check
         # and move him back to his original location

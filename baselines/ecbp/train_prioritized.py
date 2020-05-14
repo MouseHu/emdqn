@@ -1,10 +1,12 @@
 from baselines.ecbp.common import *
 from baselines.ecbp.agents.ecbp_agent import ECBPAgent
+from baselines.ecbp.agents.ps_agent import PSAgent
 from baselines.ecbp.agents.ec_agent import ECAgent
 from baselines.ecbp.agents.human_agent import HumanAgent
 from baselines.ecbp.agents.hybrid_agent import HybridAgent, HybridAgent2
 
 import sys
+import logging
 
 sys.setrecursionlimit(30000)
 # from gym.wrappers.monitoring.video_recorder import VideoRecorder
@@ -16,7 +18,7 @@ if __name__ == '__main__':
     print("obs shape", env.observation_space.shape)
     subdir = (datetime.datetime.now()).strftime("%m-%d-%Y-%H:%M:%S") + " " + args.comment
     tf_writer = tf.summary.FileWriter(os.path.join(args.log_dir, subdir), tf.get_default_graph())
-
+    make_logger("ecbp", os.path.join(args.log_dir, subdir, "logger.log"))
     exploration = PiecewiseSchedule([
         (0, 1),
         (args.end_training, 1.0),
@@ -28,17 +30,14 @@ if __name__ == '__main__':
         # (approximate_num_iters / 5, 0.1),
         # (approximate_num_iters / 3, 0.01)
     ], outside_value=0.01)
-    ecbp_agent = ECBPAgent(rp_model if args.rp else contrastive_model, exploration, env.observation_space.shape,
+    ps_agent = PSAgent(rp_model if args.rp else contrastive_model, exploration, env.observation_space.shape,
                            args.lr,
                            args.buffer_size, env.action_space.n, args.latent_dim, args.gamma, args.knn, tf_writer,
                            args.bp, args.debug)
-    # ec_agent = ECAgent(rp_model if args.rp else contrastive_model, exploration, env.observation_space.shape,
-    #                        args.lr,
-    #                        args.buffer_size, env.action_space.n, args.latent_dim, args.gamma, args.knn, tf_writer)
     # human_agent = HumanAgent(
     #     {"w": 3, "s": 4, "d": 1, "a": 0, "x": 2, "p": 5, "3": 3, "4": 4, "1": 1, "0": 0, "2": 2, "5": 5})
     # agent = HybridAgent2(ecbp_agent, human_agent, 30)
-    agent = ecbp_agent
+    agent = ps_agent
     value_summary = tf.Summary()
     # qec_summary = tf.Summary()
     value_summary.value.add(tag='discount_reward_mean')

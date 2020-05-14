@@ -18,6 +18,7 @@ class LRU_KNN_GPU_BP(object):
         self.done = np.zeros(capacity, dtype=np.bool)
         self.internal_value = np.zeros(capacity)
         self.next_id = -1 * np.ones((capacity, 2))
+        self.newly_added = np.ones(capacity, dtype=np.bool)
         self.prev_id = [[] for _ in range(capacity)]
         self.brothers = [[] for _ in range(capacity)]
         self.rmax = self.beta * 2400
@@ -26,7 +27,7 @@ class LRU_KNN_GPU_BP(object):
         # self.best_action = np.zeros((capacity, num_actions), dtype=np.int)
         self.curr_capacity = 0
         self.tm = 0.0
-        self.threshold = 1e-2
+        self.threshold = 1e-7
         self.knn = knn
         # self.beta = beta
         self.address = knn_cuda_fixmem.allocate(capacity, z_dim, 32, knn)
@@ -69,12 +70,12 @@ class LRU_KNN_GPU_BP(object):
 
         return external_value, internal_value
 
-    def act_value(self, key, knn):
-        # knn = min(self.curr_capacity, knn)
+    def act_value(self, key, knn, bp=True):
+        knn = min(self.curr_capacity, knn)
         internal_values = []
         external_values = []
         exact_refer = []
-        if self.curr_capacity < knn:
+        if self.curr_capacity < 1:
             # print(self.curr_capacity, knn)
             for i in range(len(key)):
                 internal_values.append(0)
@@ -100,11 +101,13 @@ class LRU_KNN_GPU_BP(object):
                 internal_value = self.internal_value[ind[i][0]]
                 self.lru[ind[i][0]] = self.tm
                 self.tm += 0.01
-                print(ind[i][0],end=" ")
+                print(ind[i][0], end=" ", flush=True)
             else:
+                print("dist", dist[i][0], end=" ", flush=True)
                 exact_refer.append(False)
                 for j, index in enumerate(ind[i]):
-                    # external_value += (self.external_value[index]) * coeff[j]
+                    if not bp:
+                        external_value += (self.external_value[index]) * coeff[j]
 
                     # print(coeff.shape, index, i)
                     self.lru[index] = self.tm

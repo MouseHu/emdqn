@@ -2,7 +2,7 @@ import numpy as np
 import readchar
 
 
-class HyberAgent(object):
+class HybridAgent(object):
     def __init__(self, agent1, agent2, episodes=20):
         # self.keyboard_config = keyboard_config
         self.agent1 = agent1
@@ -27,13 +27,13 @@ class HyberAgent(object):
         self.agent2.observe(action, reward, obs, done, train)
 
 
-class HyberAgent2(object):
+class HybridAgent2(object):
     def __init__(self, agent1, agent2, episodes=20):
         # self.keyboard_config = keyboard_config
         self.agent1 = agent1
         self.agent2 = agent2
         self.episodes = episodes
-        self.episode_count = 0
+        self.episode_count = 1
 
     def act(self, obs, is_train=True):
         # print("input action:",end=" ")
@@ -46,6 +46,10 @@ class HyberAgent2(object):
         # return action
 
     def observe(self, action, reward, obs, done, train):
+
+        self.agent1.observe(action, reward, obs, done, train)
+        self.agent2.observe(action, reward, obs, done, train)
+
         if done:
             if train:
                 self.episode_count -= 1
@@ -54,6 +58,3 @@ class HyberAgent2(object):
                         self.episode_count = int(input("num episode to auto run: "))
                     except:
                         self.episode_count = 0
-
-        self.agent1.observe(action, reward, obs, done, train)
-        self.agent2.observe(action, reward, obs, done, train)
