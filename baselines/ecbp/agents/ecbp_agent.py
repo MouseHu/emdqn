@@ -49,7 +49,7 @@ class ECBPAgent(object):
             self.ind = self.ec_buffer.peek(z)
             if self.ind == -1:
 
-                self.ind = self.ec_buffer.ec_buffer.add_node(z)
+                self.ind= self.ec_buffer.ec_buffer.add_node(z)
                 if self.debug:
                     print("add node for first ob ", self.ind)
         self.steps += 1

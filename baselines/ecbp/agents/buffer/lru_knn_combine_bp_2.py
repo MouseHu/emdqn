@@ -45,8 +45,8 @@ class LRU_KNN_COMBINE_BP_2(object):
                 if d > 0:
                     r_loop = r_loop * self.gamma + r
                 for sa_pair in self.ec_buffer.prev_id[s]:
-                    stm1, atm1 = sa_pair
-                    stack.append((s0, stm1, atm1, r_i, new_r_e, d + 1, r_loop))
+                    state_tm1, action_tm1 = sa_pair
+                    stack.append((s0, state_tm1, action_tm1, r_i, new_r_e, d + 1, r_loop))
 
     def intrinsic_reward_update_iter(self, stack):
         while len(stack) > 0:
@@ -132,9 +132,9 @@ class LRU_KNN_COMBINE_BP_2(object):
                 if d > 0:
                     r_loop = r_loop * self.gamma + r
                 for sa_pair in self.ec_buffer.prev_id[s]:
-                    stm1, atm1 = sa_pair
-                    if not self.ec_buffer.newly_added[stm1, atm1]:
-                        stack.append((s0, stm1, atm1, np.max(self.ec_buffer.external_value[s, :]), d + 1, r_loop))
+                    state_tm1, action_tm1 = sa_pair
+                    if not self.ec_buffer.newly_added[state_tm1, action_tm1]:
+                        stack.append((s0, state_tm1, action_tm1, np.max(self.ec_buffer.external_value[s, :]), d + 1, r_loop))
 
     def state_value(self, index):
         if index > 0:

@@ -72,8 +72,8 @@ class EpisodicwExplorationAgent(object):
             r_i = max(self.intrinsic[s, :])
             if d > 0:
                 r_loop = r_loop * self.gamma + r
-            for stm1, atm1 in self.back_pointer[s]:
-                self.reward_update(s0, stm1, atm1, r_i, self.table[s, a], d + 1, r_loop)
+            for state_tm1, action_tm1 in self.back_pointer[s]:
+                self.reward_update(s0, state_tm1, action_tm1, r_i, self.table[s, a], d + 1, r_loop)
 
     def update_sequence(self):
         # rtn = 0

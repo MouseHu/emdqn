@@ -54,8 +54,8 @@ class LRU_KNN_COMBINE_BP(object):
             r_i = max([buffer.internal_value[s] for buffer in self.ec_buffer])
             if d > 0:
                 r_loop = r_loop * self.gamma + r
-            for stm1, atm1 in self.ec_buffer[a].prev_id:
-                self.reward_update(s0, stm1, atm1, r_i, self.ec_buffer[a].external_value[s], d + 1, r_loop)
+            for state_tm1, action_tm1 in self.ec_buffer[a].prev_id:
+                self.reward_update(s0, state_tm1, action_tm1, r_i, self.ec_buffer[a].external_value[s], d + 1, r_loop)
 
     def update_sequence(self, sequence, gamma):
         Rtn = [0]

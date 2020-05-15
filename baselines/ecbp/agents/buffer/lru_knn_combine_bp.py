@@ -101,8 +101,8 @@ class LRU_KNN_COMBINE_BP(object):
                 if d > 0:
                     r_loop = r_loop * self.gamma + r
                 for sa_pair in self.ancestor(s, a):
-                    stm1, atm1 = sa_pair
-                    stack.append((s0, stm1, atm1, r_i, self.ec_buffer[a].external_value[s], d + 1, r_loop))
+                    state_tm1, action_tm1 = sa_pair
+                    stack.append((s0, state_tm1, action_tm1, r_i, self.ec_buffer[a].external_value[s], d + 1, r_loop))
 
     def intrinsic_reward_update_iter(self, stack):
         while len(stack) > 0:

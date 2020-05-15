@@ -10,10 +10,10 @@ import copy
 import logging
 
 
-class PSAgent(object):
+class KBPSAgent(object):
     def __init__(self, model_func, exploration_schedule, obs_shape, lr=1e-4, buffer_size=1000000,
                  num_actions=6, latent_dim=32,
-                 gamma=0.99, knn=4,
+                 gamma=0.99, knn=10,
                  tf_writer=None, bp=True, debug=True):
         self.ec_buffer = LRU_KNN_PRIORITIZEDSWEEPING(num_actions, buffer_size, latent_dim, latent_dim, gamma, bp, debug)
         self.obs = None
@@ -31,7 +31,7 @@ class PSAgent(object):
         self.rmax = 100000
         self.debug = debug
         self.logger = logging.getLogger("ecbp")
-        self.eval_epsilon = 0.05
+        self.heuristic_exploration = True
         self.hash_func, _, _ = build_train_dueling(
             make_obs_ph=lambda name: U.Uint8Input(obs_shape, name=name),
             model_func=model_func,
@@ -51,16 +51,19 @@ class PSAgent(object):
         z = np.array(self.hash_func(np.array(obs))).reshape((self.latent_dim,))
         self.z = z
         if self.ind == -1:
-            self.ind, _, _ = self.ec_buffer.ec_buffer.peek(z)
-            if self.ind == -1:
+            self.ind, knn_dist, knn_ind = self.ec_buffer.peek(z)
 
+            if self.ind == -1:
                 self.ind, _ = self.ec_buffer.ec_buffer.add_node(z)
+                knn_dist = [0]+knn_dist[1:]
+                knn_ind = [self.ind]+knn_ind[1:]
                 if self.debug:
                     print("add node for first ob ", self.ind)
+            self.ec_buffer.dist = knn_dist
+            self.ec_buffer.ind = knn_ind
         self.steps += 1
         # instance_inr = np.max(self.exploration_coef(self.count[obs]))
-        epsilon = max(0, self.exploration_schedule.value(self.steps)) if is_train else self.eval_epsilon
-        if np.random.random() < epsilon:
+        if (np.random.random() < max(0, self.exploration_schedule.value(self.steps))) and is_train:
             action = np.random.randint(0, self.num_actions)
             if self.debug:
                 print("random")
@@ -72,20 +75,21 @@ class PSAgent(object):
             finds += sum(find)
             # if self.debug:
             #     print("old external q ", np.squeeze(extrinsic_qs), flush=True)
-            if is_train:
+            if is_train and self.heuristic_exploration:
+                extrinsic_qs = np.array([x if x > -self.rmax else 0 for x in extrinsic_qs])
                 q = intrinsic_qs + extrinsic_qs
             else:
                 q = extrinsic_qs
-
-            # self.log("train:", is_train)
-            # self.log("external q ", np.squeeze(extrinsic_qs))
-            # if is_train:
-            #     self.log("internal q ", np.squeeze(intrinsic_qs))
-            # self.log("exact refer", np.squeeze(find))
+            if self.debug:
+                print("train:", is_train)
+                print("external q ", np.squeeze(extrinsic_qs), flush=True)
+                if is_train:
+                    print("internal q ", np.squeeze(intrinsic_qs), flush=True)
+                print("exact refer", np.squeeze(find), flush=True)
             q = np.squeeze(q)
             q_max = np.max(q)
 
-            max_action = np.where(q >= q_max - 1e-7)[0]
+            max_action = np.where(q >= q_max - 1e-10)[0]
             self.log("action selection", max_action)
             self.log("q", q, q_max)
             action_selected = np.random.randint(0, len(max_action))

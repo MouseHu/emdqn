@@ -26,10 +26,10 @@ if __name__ == '__main__':
         # (args.end_training+1, 0.005),
         # (args.end_training + 10000, 1.0),
         # (args.end_training + 500000, 0.05),
-        # (args.end_training + 1000000, 0.01),
+        (args.end_training + 1000000, 0.1),
         # (approximate_num_iters / 5, 0.1),
         # (approximate_num_iters / 3, 0.01)
-    ], outside_value=0.01)
+    ], outside_value=0.1)
     ps_agent = PSAgent(rp_model if args.rp else contrastive_model, exploration, env.observation_space.shape,
                            args.lr,
                            args.buffer_size, env.action_space.n, args.latent_dim, args.gamma, args.knn, tf_writer,

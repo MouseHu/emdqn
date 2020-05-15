@@ -67,7 +67,7 @@ def parse_args():
     parser.add_argument("--end_training", type=int, default=0, help="number of pretrain steps")
     parser.add_argument('--map_config', type=str,
                         help='The map and config you want to run in MonsterKong.',
-                        default='../ple/configs/config_ppo_mk.py')
+                        default='../ple/configs/config_ppo_mk_hard.py')
     parser.add_argument('--param_dir', type=str,
                         help='The map and config you want to run in MonsterKong.',
                         default='../doom/')
