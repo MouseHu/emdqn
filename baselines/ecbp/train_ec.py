@@ -1,15 +1,10 @@
 from baselines.ecbp.common import *
 from baselines.ecbp.agents.ecbp_agent import ECBPAgent
-from baselines.ecbp.agents.ps_agent import PSAgent
-from baselines.ecbp.agents.ps_mp_agent import PSMPAgent
-from baselines.ecbp.agents.kbps_mp_agent import KBPSMPAgent
-from baselines.ecbp.agents.kbps_agent import KBPSAgent
 from baselines.ecbp.agents.ec_agent import ECAgent
 from baselines.ecbp.agents.human_agent import HumanAgent
 from baselines.ecbp.agents.hybrid_agent import HybridAgent, HybridAgent2
 
 import sys
-import logging
 
 sys.setrecursionlimit(30000)
 # from gym.wrappers.monitoring.video_recorder import VideoRecorder
@@ -21,7 +16,7 @@ if __name__ == '__main__':
     print("obs shape", env.observation_space.shape)
     subdir = (datetime.datetime.now()).strftime("%m-%d-%Y-%H:%M:%S") + " " + args.comment
     tf_writer = tf.summary.FileWriter(os.path.join(args.log_dir, subdir), tf.get_default_graph())
-    make_logger("ecbp", os.path.join(args.log_dir, subdir, "logger.log"))
+
     exploration = PiecewiseSchedule([
         (0, 1),
         (args.end_training, 1.0),
@@ -29,19 +24,15 @@ if __name__ == '__main__':
         # (args.end_training+1, 0.005),
         # (args.end_training + 10000, 1.0),
         (args.end_training + 500000, 0.05),
-        (args.end_training + 1000000, 0.1),
+        (args.end_training + 1000000, 0.01),
         # (approximate_num_iters / 5, 0.1),
         # (approximate_num_iters / 3, 0.01)
-    ], outside_value=0.1)
-    ps_agent = PSMPAgent(rp_model if args.rp else contrastive_model, exploration, env.observation_space.shape,
-                           args.lr,
-                           args.buffer_size, env.action_space.n, args.latent_dim, args.gamma, args.knn,
-                           args.eval_epsilon,
-                           tf_writer)
-    # human_agent = HumanAgent(
-    #     {"w": 3, "s": 4, "d": 1, "a": 0, "x": 2, "p": 5, "3": 3, "4": 4, "1": 1, "0": 0, "2": 2, "5": 5})
-    # agent = HybridAgent2(ecbp_agent, human_agent, 30)
-    agent = ps_agent
+    ], outside_value=0.01)
+
+    ec_agent = ECAgent(rp_model if args.rp else contrastive_model, exploration, env.observation_space.shape,
+                       args.lr,
+                       args.buffer_size, env.action_space.n, args.latent_dim, args.gamma, args.knn, tf_writer)
+    agent = ec_agent
     value_summary = tf.Summary()
     # qec_summary = tf.Summary()
     value_summary.value.add(tag='discount_reward_mean')
@@ -76,25 +67,23 @@ if __name__ == '__main__':
         update_time = 0
         cur_time = time.time()
         while True:
-            eval = (num_episodes % 10 == 9)
-            if not eval:
+            if num_episodes % 2 == 0:
                 num_iters += 1
             else:
                 eval_iters += 1
             # Take action and store transition in the replay buffer.
-            # print("into action")
-            action = agent.act(np.array(obs)[None], is_train=not eval)
+            action = agent.act(np.array(obs)[None], is_train=num_episodes % 2 == 0)
             act_time += time.time() - cur_time
             cur_time = time.time()
             new_obs, rew, done, info = env.step(action)
             env_time += time.time() - cur_time
             cur_time = time.time()
-            agent.observe(action, rew, new_obs, done, train=not eval)
+            agent.observe(action, rew, new_obs, done, train=num_episodes % 2 == 0)
             update_time += time.time() - cur_time
             cur_time = time.time()
             # if num_episodes % 40 == 39:
             #     env.record = True
-            if eval:
+            if num_episodes % 2 == 1:
                 # print("reward",rew)
                 # if rew != 0:
                 #     print("rew and coef", rew, eval_iters - eval_start_steps)
@@ -111,7 +100,7 @@ if __name__ == '__main__':
                     print_flag = False
 
                 obs = env.reset()
-                if eval:
+                if num_episodes % 2 == 1:
                     non_discount_return.append(0.0)
                     discount_return.append(0.0)
 
@@ -125,7 +114,6 @@ if __name__ == '__main__':
             value_summary.value[2].simple_value = num_iters
 
             if num_iters > args.num_steps:
-                agent.finish()
                 break
 
             if done:
@@ -150,7 +138,7 @@ if __name__ == '__main__':
                 logger.record_tabular("act_time", act_time)
                 logger.record_tabular("env_time", env_time)
                 logger.record_tabular("eval", num_episodes % 2 == 0)
-                if eval:
+                if num_episodes % 2 == 0:
                     value_summary.value[0].simple_value = np.mean(discount_return[-return_len - 1:-1])
                     value_summary.value[1].simple_value = np.mean(non_discount_return[-return_len - 1:-1])
                     value_summary.value[3].simple_value = num_episodes
@@ -163,8 +151,7 @@ if __name__ == '__main__':
                 logger.log("ETA: " + pretty_eta(int(steps_left / fps_estimate)))
                 logger.log()
 
-                eval = (num_episodes % 10 == 9)
-                if not eval:
+                if num_episodes % 2 == 0:
                     start_steps = num_iters
                 else:
                     eval_start_steps = eval_iters

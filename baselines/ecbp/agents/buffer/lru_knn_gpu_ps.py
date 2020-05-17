@@ -17,9 +17,9 @@ class LRU_KNN_GPU_PS(object):
         self.num_actions = num_actions
         self.rmax = 100000
         self.states = np.empty((capacity, z_dim), dtype=np.float32)
-        self.external_value = np.zeros((capacity, num_actions))
-        self.state_value_v = np.zeros(capacity)
-        self.state_value_u = np.zeros(capacity)
+        self.external_value = np.full((capacity, num_actions), np.nan)
+        self.state_value_v = np.full((capacity,), np.nan)
+        self.state_value_u = np.full((capacity,), np.nan)
         self.reward = np.zeros((capacity, num_actions))
         self.done = np.zeros((capacity, num_actions), dtype=np.bool)
         self.newly_added = np.ones((capacity, num_actions), dtype=np.bool)
@@ -34,7 +34,7 @@ class LRU_KNN_GPU_PS(object):
         # self.best_action = np.zeros((capacity, num_actions), dtype=np.int)
         self.curr_capacity = 0
         self.tm = 0.0
-        self.threshold = 1e-2
+        self.threshold = 1e-7
         self.knn = knn
         self.gamma = gamma
         self.b = 10
@@ -66,8 +66,8 @@ class LRU_KNN_GPU_PS(object):
         exact_refer = []
         if knn < 1:
             for i in range(len(key)):
-                internal_values.append(np.zeros(self.num_actions))
-                external_values.append(np.zeros(self.num_actions))
+                internal_values.append(self.rmax * np.ones(self.num_actions))
+                external_values.append(-self.rmax * np.ones(self.num_actions))
                 exact_refer.append(False)
             return external_values, internal_values, np.array(exact_refer)
 
@@ -89,12 +89,15 @@ class LRU_KNN_GPU_PS(object):
                 exact_refer.append(True)
                 external_value = copy.deepcopy(self.external_value[ind[i][0]])
                 internal_value = copy.deepcopy(self.internal_value[ind[i][0]])
+                external_value[np.isnan(external_value)] = -self.rmax
                 self.lru[ind[i][0]] = self.tm
                 self.tm += 0.01
             else:
                 exact_refer.append(False)
                 for j, index in enumerate(ind[i]):
-                    external_value += self.external_value[index] * coeff[j]
+                    tmp_external_value = copy.deepcopy(self.external_value[index])
+                    tmp_external_value[np.isnan(tmp_external_value)] = -self.rmax
+                    external_value += tmp_external_value * coeff[j]
                     self.lru[index] = self.tm
                     self.tm += 0.01
             external_values.append(external_value)
@@ -110,7 +113,7 @@ class LRU_KNN_GPU_PS(object):
             self.next_id[src][action][des] += 1
         except KeyError:
             self.next_id[src][action][des] = 1
-        if self.internal_value[src, action] > 0 and sum(self.next_id[src][action].values()) > 10:
+        if self.internal_value[src, action] > 0 and sum(self.next_id[src][action].values()) > 5:
             self.internal_value[src, action] = 0
         self.reward[src, action] = reward  # note that we assume that reward function is deterministic
         self.done[src, action] = done
@@ -128,10 +131,10 @@ class LRU_KNN_GPU_PS(object):
                             self.prev_id.remove((s, a))
                 self.next_id[old_index][action] = dict()
             self.states[old_index] = key
-            self.external_value[old_index] = np.zeros(self.num_actions)
+            self.external_value[old_index] = np.full((self.num_actions,), np.nan)
             self.internal_value[old_index] = self.rmax * np.ones(self.num_actions)
-            self.state_value_u[old_index] = 0
-            self.state_value_v[old_index] = 0
+            self.state_value_u[old_index] = np.nan
+            self.state_value_v[old_index] = np.nan
             self.lru[old_index] = self.tm
             self.count[old_index] = 2
             self.prev_id[old_index] = []
@@ -152,14 +155,11 @@ class LRU_KNN_GPU_PS(object):
     def distance(a, b):
         return np.sqrt(np.sum(np.square(a - b)))
 
-    def update_q_value(self, state, action, state_tp1, delta_u, kernel=False):
+    def update_q_value(self, state, action, state_tp1, delta_u):
         successor_states = self.next_id[state][action].keys()
-        if kernel:
-            weight = {
-                s: self.next_id[state][action][s] * np.exp(self.distance(self.states[s], self.states[state]) / self.b)
-                for s in successor_states}
-        else:
-            weight = {s: self.next_id[state][action][s] for s in successor_states}
+        weight = {s: self.next_id[state][action][s] for s in successor_states}
         trans_p = weight[state_tp1] / sum(weight.values())
         assert 0 <= trans_p <= 1
+        if np.isnan(self.external_value[state, action]):
+            self.external_value[state, action] = 0
         self.external_value[state, action] += self.gamma * trans_p * delta_u

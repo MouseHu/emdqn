@@ -17,6 +17,7 @@ from baselines.ecbp.env.fourrooms import Fourrooms
 from baselines.common.atari_wrappers_deprecated import FrameStack
 from baselines.deepq.replay_buffer import ReplayBufferHash, PrioritizedReplayBuffer
 from baselines.common.atari_lib import MKPreprocessing
+from baselines.common.atari_lib import CropWrapper
 from baselines.common.atari_lib import DoomPreprocessing
 from baselines.doom.environment import DoomEnvironment
 from baselines.common.misc_util import (
@@ -40,6 +41,9 @@ from baselines.deepq.experiments.atari.lru_knn_combine_bp import LRU_KNN_COMBINE
 from baselines.common.atari_lib import create_atari_environment
 import logging
 
+mk_map_config = {"small": "../ple/configs/config_ppo_mk.py", "hard": "../ple/configs/config_ppo_mk_hard.py",
+                 "hard_2": "../ple/configs/config_ppo_mk_hard_2.py"}
+
 
 # from gym.wrappers.monitoring.video_recorder import VideoRecorder
 
@@ -47,7 +51,8 @@ import logging
 def parse_args():
     parser = argparse.ArgumentParser("DQN experiments for Atari games")
     # Environment test deployment
-    parser.add_argument("--env", type=str, default="Pong", help="name of the game")
+    parser.add_argument("--env", type=str, default="Atari", help="name of the game")
+    parser.add_argument("--env_name", type=str, default="Pong", help="name of the game")
     parser.add_argument("--seed", type=int, default=int(time.time()), help="which seed to use")
     parser.add_argument("--gamma", type=int, default=0.99, help="which seed to use")
     # Core DQN parameters
@@ -65,9 +70,11 @@ def parse_args():
                         help="number of iterations between every target network update")
     parser.add_argument("--knn", type=int, default=4, help="number of k nearest neighbours")
     parser.add_argument("--end_training", type=int, default=0, help="number of pretrain steps")
+    parser.add_argument("--eval_epsilon", type=int, default=0.01, help="eval epsilon")
     parser.add_argument('--map_config', type=str,
                         help='The map and config you want to run in MonsterKong.',
                         default='../ple/configs/config_ppo_mk_hard.py')
+
     parser.add_argument('--param_dir', type=str,
                         help='The map and config you want to run in MonsterKong.',
                         default='../doom/')
@@ -133,11 +140,11 @@ def make_env(game_name):
 
 
 def create_env(args):
-    if args.env == "MK":
+    if args.env == "MK" or args.env == "mk":
         import imp
 
         try:
-            map_config_file = args.map_config
+            map_config_file = mk_map_config.get(args.env_name,mk_map_config["small"])
             map_config = imp.load_source('map_config', map_config_file).map_config
         except Exception as e:
             sys.exit(str(e) + '\n'
@@ -153,15 +160,19 @@ def create_env(args):
         env = gym.make('MonsterKong-v0')
         env = ProcessFrame(env)
         env = MKPreprocessing(env, frame_skip=3, no_jump=True)
-    elif args.env == "GW":
+    elif args.env == "GW" or args.env == "mk":
         env = Fourrooms()
-    elif args.env in ["tmaze"]:
-        params = load_params(args.param_dir, args.env)
+    elif args.env == "doom" or args.env == "Doom":
+        params = load_params(args.param_dir, args.env_name)
         env = DoomEnvironment(**params['env_params'])
         env = DoomPreprocessing(env, frame_skip=4)
-    else:
-        env = create_atari_environment(args.env, sticky_actions=False)
+    elif args.env == "atari" or args.env == "Atari":
+        env = create_atari_environment(args.env_name, sticky_actions=False)
         env = FrameStack(env, 4)
+        # if args.env_name == "Pong":
+        #     env = CropWrapper(env,34,15)
+    else:
+        raise NotImplementedError
     if args.seed > 0:
         set_global_seeds(args.seed)
         env.unwrapped.seed(args.seed)

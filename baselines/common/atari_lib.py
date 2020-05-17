@@ -918,3 +918,23 @@ class DoomPreprocessing(object):
 
         self.game_over = game_over
         return observation, accumulated_reward, is_terminal, info
+
+
+class CropWrapper(gym.Wrapper):
+    def __init__(self, env, crop_top, crop_bottom):
+        super(CropWrapper, self).__init__(env)
+        self.crop_top = crop_top
+        self.crop_bottom = crop_bottom
+
+    def step(self, action):
+        obs, reward, done, info = self.env.step(action)
+        obs = np.array(obs)
+        obs = obs[self.crop_top:-self.crop_bottom - 1, :, :]
+        # print(obs.shape)
+        new_obs = np.zeros((84, 84, obs.shape[2]))
+        for i in range(obs.shape[2]):
+            new_obs[:, :, i] = cv2.resize(obs[:, :, i], (84, 84), interpolation=cv2.INTER_LINEAR).astype(np.float32)
+        return new_obs, reward, done, info
+
+    def reset(self):
+        return self.env.reset()

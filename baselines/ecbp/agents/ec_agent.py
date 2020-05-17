@@ -37,6 +37,7 @@ class ECAgent(object):
             gamma=gamma,
             grad_norm_clipping=10,
         )
+        self.eval_epsilon = 0.01
 
     def act(self, obs, is_train=True):
         self.obs = obs
@@ -44,7 +45,8 @@ class ECAgent(object):
         self.z = z
         self.steps += 1
         # instance_inr = np.max(self.exploration_coef(self.count[obs]))
-        if (np.random.random() < max(0, self.exploration_schedule.value(self.steps))) and is_train:
+        epsilon = max(0, self.exploration_schedule.value(self.steps)) if is_train else self.eval_epsilon
+        if np.random.random() < epsilon:
             action = np.random.randint(0, self.num_actions)
             # print("random")
             return action

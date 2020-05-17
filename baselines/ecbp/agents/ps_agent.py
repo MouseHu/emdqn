@@ -13,7 +13,7 @@ import logging
 class PSAgent(object):
     def __init__(self, model_func, exploration_schedule, obs_shape, lr=1e-4, buffer_size=1000000,
                  num_actions=6, latent_dim=32,
-                 gamma=0.99, knn=4,
+                 gamma=0.99, knn=4, eval_epsilon=0.01,
                  tf_writer=None, bp=True, debug=True):
         self.ec_buffer = LRU_KNN_PRIORITIZEDSWEEPING(num_actions, buffer_size, latent_dim, latent_dim, gamma, bp, debug)
         self.obs = None
@@ -31,7 +31,7 @@ class PSAgent(object):
         self.rmax = 100000
         self.debug = debug
         self.logger = logging.getLogger("ecbp")
-        self.eval_epsilon = 0.05
+        self.eval_epsilon = eval_epsilon
         self.hash_func, _, _ = build_train_dueling(
             make_obs_ph=lambda name: U.Uint8Input(obs_shape, name=name),
             model_func=model_func,
@@ -55,15 +55,13 @@ class PSAgent(object):
             if self.ind == -1:
 
                 self.ind, _ = self.ec_buffer.ec_buffer.add_node(z)
-                if self.debug:
-                    print("add node for first ob ", self.ind)
+                self.log("add node for first ob ", self.ind)
         self.steps += 1
         # instance_inr = np.max(self.exploration_coef(self.count[obs]))
         epsilon = max(0, self.exploration_schedule.value(self.steps)) if is_train else self.eval_epsilon
         if np.random.random() < epsilon:
             action = np.random.randint(0, self.num_actions)
-            if self.debug:
-                print("random")
+            self.log("random")
             return action
         else:
             finds = np.zeros((1,))
@@ -97,25 +95,18 @@ class PSAgent(object):
             return max_action[action_selected]
 
     def observe(self, action, reward, state_tp1, done, train=True):
-        if not train:
-            return
         z_tp1 = np.array(self.hash_func(np.array(state_tp1)[np.newaxis, ...])).reshape((self.latent_dim,))
-
-        new_ind = self.ec_buffer.prioritized_sweeping(
-            (self.ind, action, reward, z_tp1, done))
-        # self.sequence.append((self.ind, action, reward, new_ind, done))
-        self.ind = new_ind
-
+        if train:
+            self.ind = self.ec_buffer.prioritized_sweeping((self.ind, action, reward, z_tp1, done))
+        else:
+            self.ind, self.ec_buffer.dist, self.ec_buffer.ind = self.ec_buffer.peek(z_tp1)
         if done:
-            # if train:
-            #     self.print_sequence()
-            if self.debug:
-                print("last dance")
-                self.act(np.array(state_tp1)[np.newaxis, ...], is_train=train)
-            # self.update_sequence()
             self.ind = -1
             self.steps = 0
 
     # def update_sequence(self):
     #     self.ec_buffer.update_sequence(self.sequence, self.debug)
     #     self.sequence = []
+
+    def finish(self):
+        self.ec_buffer.end_sweep()

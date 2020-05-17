@@ -11,37 +11,31 @@ import copy
 import logging
 
 
-class KBPSAgent(object):
-    def __init__(self, model_func, exploration_schedule, obs_shape, lr=1e-4, buffer_size=1000000,
-                 num_actions=6, latent_dim=32,
-                 gamma=0.99, knn=10, eval_epsilon=0.01,
-                 tf_writer=None, bp=True, debug=True):
-        self.ec_buffer = LRU_KNN_KBPS(num_actions, buffer_size, latent_dim, latent_dim, gamma, bp, debug)
+class BaseAgent(object):
+    def __init__(self, model_func, ec_buffer, exploration_schedule, args, tf_writer=None):
+        self.ec_buffer = ec_buffer
         self.obs = None
         self.z = None
         self.ind = -1
         self.writer = tf_writer
         self.sequence = []
-        self.gamma = gamma
-        self.bp = bp
-        self.num_actions = num_actions
+        self.gamma = args.gamma
+        self.num_actions = args.num_actions
         self.exploration_schedule = exploration_schedule
-        self.latent_dim = latent_dim
-        self.knn = knn
+        self.latent_dim = args.latent_dim
+        self.knn = args.knn
         self.steps = 0
         self.rmax = 100000
-        self.debug = debug
-        self.logger = logging.getLogger("ecbp")
-        self.heuristic_exploration = True
-        self.eval_epsilon = eval_epsilon
+        self.logger = logging.getLogger(args.agent_name)
+        self.eval_epsilon = args.eval_epsilon
         self.hash_func, _, _ = build_train_dueling(
-            make_obs_ph=lambda name: U.Uint8Input(obs_shape, name=name),
+            make_obs_ph=lambda name: U.Uint8Input(args.obs_shape, name=name),
             model_func=model_func,
             q_func=model,
             imitate=False,
-            num_actions=num_actions,
+            num_actions=args.num_actions,
             optimizer=tf.train.AdamOptimizer(learning_rate=lr, epsilon=1e-4),
-            gamma=gamma,
+            gamma=args.gamma,
             grad_norm_clipping=10,
         )
 
@@ -54,37 +48,29 @@ class KBPSAgent(object):
         self.z = z
         if self.ind == -1:
             self.ind, knn_dist, knn_ind = self.ec_buffer.peek(z)
-            knn_dist = np.array(knn_dist).reshape(-1).tolist()
-            knn_ind = np.array(knn_ind).reshape(-1).tolist()
+
             if self.ind == -1:
                 self.ind, _ = self.ec_buffer.ec_buffer.add_node(z)
-                knn_dist = [0] + knn_dist
-                knn_ind = [self.ind] + knn_ind
-                if self.debug:
-                    print("add node for first ob ", self.ind)
+                knn_dist = [0] + knn_dist[1:]
+                knn_ind = [self.ind] + knn_ind[1:]
+                self.log("add node for first ob ", self.ind)
             self.ec_buffer.dist = knn_dist
             self.ec_buffer.ind = knn_ind
-        else:
-            ind, knn_dist, knn_ind = self.ec_buffer.peek(z)
-            knn_dist = np.array(knn_dist).reshape(-1).tolist()
-            knn_ind = np.array(knn_ind).reshape(-1).tolist()
-            assert self.ind == ind, "{} {}".format(self.ind, ind)
-            self.ec_buffer.dist = knn_dist
-            self.ec_buffer.ind = knn_ind
-
         self.steps += 1
-        epsilon = max(0, self.exploration_schedule.value(self.steps)) if is_train else self.eval_epsilon
-        if np.random.random() < epsilon:
+        # instance_inr = np.max(self.exploration_coef(self.count[obs]))
+        if (np.random.random() < max(0, self.exploration_schedule.value(self.steps))) and is_train:
             action = np.random.randint(0, self.num_actions)
+            self.log("random")
             return action
         else:
             finds = np.zeros((1,))
             extrinsic_qs, intrinsic_qs, find = self.ec_buffer.ec_buffer.act_value(np.array([z]), self.knn)
-            extrinsic_qs, intrinsic_qs = np.array(extrinsic_qs).squeeze(), np.array(intrinsic_qs).squeeze()
+            extrinsic_qs, intrinsic_qs = np.array(extrinsic_qs), np.array(intrinsic_qs)
             finds += sum(find)
+            # if self.debug:
+            #     print("old external q ", np.squeeze(extrinsic_qs), flush=True)
             if is_train:
-                # self.log("extrinsic q shaps",extrinsic_qs.shape,extrinsic_qs)
-                # extrinsic_qs = np.array([x if x > -self.rmax else 0 for x in extrinsic_qs])
+                extrinsic_qs = np.array([x if x > -self.rmax else 0 for x in extrinsic_qs])
                 q = intrinsic_qs + extrinsic_qs
             else:
                 q = extrinsic_qs
@@ -95,19 +81,12 @@ class KBPSAgent(object):
             self.log("action selection", max_action)
             self.log("q", q, q_max)
             action_selected = np.random.randint(0, len(max_action))
+            # if self.debug:
+            #     print("q ", q)
+            #     print("q shape", q.shape, extrinsic_qs.shape, intrinsic_qs.shape)
+            #     print("max action and random", max_action, action_selected)
+            #     print("chosen action", max_action[action_selected])
             return max_action[action_selected]
 
     def observe(self, action, reward, state_tp1, done, train=True):
-
-        z_tp1 = np.array(self.hash_func(np.array(state_tp1)[np.newaxis, ...])).reshape((self.latent_dim,))
-        if train:
-            self.ind = self.ec_buffer.prioritized_sweeping((self.ind, action, reward, z_tp1, done))
-        else:
-            self.ind, self.ec_buffer.dist, self.ec_buffer.ind = self.ec_buffer.peek(z_tp1)
-        if done:
-            self.ind = -1
-            self.steps = 0
-
-
-    def finish(self):
         pass
