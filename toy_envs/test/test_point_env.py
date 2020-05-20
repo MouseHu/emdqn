@@ -1,8 +1,16 @@
 import gym
-
+from pyvirtualdisplay import Display
+from gym.envs.registration import register
 
 def main():
-    env = gym.make('toy_envs:Point-v0')
+    display = Display(visible=1, size=(1080, 720))
+    display.start()
+    register(
+        id='Point-v0',
+        entry_point='toy_envs.envs:PointEnv',
+        max_episode_steps=200
+    )
+    env = gym.make('Point-v0')
 
     env.reset()
     while True:

@@ -925,9 +925,11 @@ class CropWrapper(gym.Wrapper):
         super(CropWrapper, self).__init__(env)
         self.crop_top = crop_top
         self.crop_bottom = crop_bottom
+        self.action_space = gym.spaces.Discrete(3)
+        self.action_dict = {0: 0, 1: 3, 2: 4}
 
     def step(self, action):
-        obs, reward, done, info = self.env.step(action)
+        obs, reward, done, info = self.env.step(self.action_dict[action])
         obs = np.array(obs)
         obs = obs[self.crop_top:-self.crop_bottom - 1, :, :]
         # print(obs.shape)

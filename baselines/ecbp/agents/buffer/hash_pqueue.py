@@ -12,6 +12,7 @@ class HashPQueue(object):
         self.h = list(data)
         self.d = dict()
         self._heapify()
+        self.rmax = 100000
 
     def __len__(self):
         return len(self.h)
@@ -28,15 +29,16 @@ class HashPQueue(object):
         # If element is already in queue, do nothing
         if item in self.d:
             self.update(priority, item)
-        # Add element to heap and dict
-        pos = len(self.h)
-        self.h.append((priority, item))
-        self.d[item] = pos
-        # Restore invariant by sifting down
-        self._siftdown(pos)
+        else:
+            # Add element to heap and dict
+            pos = len(self.h)
+            self.h.append((priority, item))
+            self.d[item] = pos
+            # Restore invariant by sifting down
+            self._siftdown(pos)
 
     def pop(self):
-        """Remove and return the smallest element in the queue."""
+        """Remove and return the largest element in the queue."""
         # Remove smallest element
         elt = self.h[0]
         del self.d[elt[1]]
@@ -58,6 +60,9 @@ class HashPQueue(object):
         """Replace an element in the queue with a new one."""
         # Replace
         pos = self.d[item]
+        old_priority = self.h[pos][0]
+        if max(new_priority, old_priority) >= self.rmax:
+            new_priority = max(new_priority, old_priority)
         self.h[pos] = (new_priority, item)
         # Restore invariant by sifting up, then down
         pos = self._siftup(pos)
@@ -100,7 +105,7 @@ class HashPQueue(object):
                 right_pos = left_pos + 1
                 right = h[right_pos]
                 # Out-of-place, swap with left unless right is smaller
-                if right[0] < left[0]:
+                if right[0] > left[0]:
                     h[pos], h[right_pos] = right, elt
                     pos, right_pos = right_pos, pos
                     d[elt[1]], d[right[1]] = pos, right_pos
@@ -126,7 +131,7 @@ class HashPQueue(object):
         while pos > 0:
             parent_pos = (pos - 1) >> 1
             parent = h[parent_pos]
-            if parent[0] > elt[0]:
+            if parent[0] < elt[0]:
                 # Swap out-of-place element with parent
                 h[parent_pos], h[pos] = elt, parent
                 parent_pos, pos = pos, parent_pos

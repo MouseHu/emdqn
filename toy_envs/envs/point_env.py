@@ -15,17 +15,19 @@ from gym.envs.mujoco import mujoco_env
 
 class PointEnv(mujoco_env.MujocoEnv, utils.EzPickle):
     """Point Environment"""
+
     def __init__(self):
         # super(PointEnv, self).__init__(*args, **kwargs)
         # Serializable.quick_init(self, locals())
         xml_file = 'point.xml'
         xml_file_path = os.path.join(os.path.dirname(__file__), '../assets', xml_file)
+        self.actual_action_space = spaces.Box(low=np.array(0), high=np.array(1), dtype=np.float32)
         mujoco_env.MujocoEnv.__init__(self, xml_file_path, 5)
         self.init_qacc = self.sim.data.qacc.ravel().copy()
         self.init_ctrl = self.sim.data.ctrl.ravel().copy()
         # self.current_com = None
         # self.dcom = None
-
+        self._set_action_space()
         utils.EzPickle.__init__(self)
 
     def _set_action_space(self):
@@ -37,8 +39,10 @@ class PointEnv(mujoco_env.MujocoEnv, utils.EzPickle):
         return self.action_space
 
     def step(self, action):
-        lb, ub = self.actual_action_space.bounded_below, self.actual_action_space.bounded_above
-        if action == 0:
+        lb, ub = self.actual_action_space.low, self.actual_action_space.high
+        if type(action) is not int:
+            actual_action = np.array([0, 0])
+        elif action == 0:
             actual_action = np.array([0, ub[0] * 0.3])
         elif action == 1:
             actual_action = np.array([0, lb[0] * 0.3])
@@ -56,8 +60,8 @@ class PointEnv(mujoco_env.MujocoEnv, utils.EzPickle):
         dx = math.cos(ori) * actual_action[0]
         dy = math.sin(ori) * actual_action[0]
         # ensure that the robot is within reasonable range
-        qpos[0] = np.clip(qpos[0] + dx, -7, 7)
-        qpos[1] = np.clip(qpos[1] + dy, -7, 7)
+        qpos[0] = np.clip(qpos[0] + dx, -20, 20)
+        qpos[1] = np.clip(qpos[1] + dy, -20, 20)
         self.sim.data.qpos[:] = qpos
         self.sim.forward()
         obs = self._get_obs()

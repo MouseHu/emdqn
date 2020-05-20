@@ -2,6 +2,7 @@ import numpy as np
 from sklearn.neighbors import BallTree, KDTree
 import os
 from baselines.ecbp.agents.buffer.lru_knn_gpu_ps import LRU_KNN_GPU_PS
+from baselines.ecbp.agents.buffer.lru_knn_ps import LRU_KNN_PS
 import gc
 from baselines.deepq.experiments.atari.knn_cuda_fixmem import knn as knn_cuda_fixmem
 import copy
@@ -31,8 +32,8 @@ class KernelBasedPriorSweepProcess(Process):
         self.hash_dim = hash_dim
         # self.queue_lock = Lock()
         self.pqueue = HashPQueue()
-        self.b = 10
-        self.h = 1
+        self.b = 0.01
+        self.h = 0.01
         self.knn_dist = None
         self.knn_ind = None
 
@@ -52,38 +53,48 @@ class KernelBasedPriorSweepProcess(Process):
         # if (index_t, action_t) not in self.ec_buffer.prev_id[index_tp1]:
         self.log("add edge", index_t, action_t, index_tp1, logtype='debug')
         sa_count = self.ec_buffer.add_edge(index_t, index_tp1, action_t, reward_t, done_t)
-        coeff = np.exp(np.array(self.knn_dist).reshape(-1) / self.b)
+        coeff = np.exp(-np.array(self.knn_dist).reshape(-1) / self.b)
         self.log("coeff", coeff.shape, coeff)
         self.ec_buffer.pseudo_count[index_t][action_t] = {}
+        self.ec_buffer.pseudo_reward[index_t, action_t] = 0
+        self.ec_buffer.pseudo_prev[index_tp1] = {}
         for i, s in enumerate(self.knn_ind):
 
             for sp in self.ec_buffer.next_id[s][action_t].keys():
                 dist = self.ec_buffer.distance(self.ec_buffer.states[sp],
                                                self.ec_buffer.states[sp] + self.ec_buffer.states[index_t] -
                                                self.ec_buffer.states[s])
-                reweight = np.exp(np.array(dist).squeeze() / self.h)
+                reweight = np.exp(-np.array(dist).squeeze() / self.h)
+                weighted_count = reweight * coeff[i] * self.ec_buffer.next_id[s][action_t][sp]
                 try:
-                    self.ec_buffer.pseudo_count[index_t][action_t][sp] += reweight * coeff[i] * \
-                                                                          self.ec_buffer.next_id[s][action_t][sp]
+                    self.ec_buffer.pseudo_count[index_t][action_t][sp] += weighted_count
                 except KeyError:
-                    self.ec_buffer.pseudo_count[index_t][action_t][sp] = reweight * coeff[i] * \
-                                                                         self.ec_buffer.next_id[s][action_t][sp]
+                    self.ec_buffer.pseudo_count[index_t][action_t][sp] = weighted_count
+                try:
+                    self.ec_buffer.pseudo_prev[index_tp1][(index_t, action_t)] += weighted_count
+                except KeyError:
+                    self.ec_buffer.pseudo_prev[index_tp1][(index_t, action_t)] = weighted_count
 
-            self.ec_buffer.pseudo_reward[index_t, action_t] += coeff[i] * self.ec_buffer.reward[s, action_t]
+                self.ec_buffer.pseudo_reward[index_t, action_t] += reweight * coeff[i] * self.ec_buffer.reward[
+                    s, action_t]
+            if index_t == s:
+                continue
             for sp in self.ec_buffer.next_id[index_t][action_t].keys():
                 dist = self.ec_buffer.distance(self.ec_buffer.states[sp],
                                                self.ec_buffer.states[sp] + self.ec_buffer.states[s] -
                                                self.ec_buffer.states[index_t])
-                reweight = np.exp(np.array(dist).squeeze() / self.h)
+                reweight = np.exp(-np.array(dist).squeeze() / self.h)
+                weighted_count = reweight * coeff[i] * self.ec_buffer.next_id[index_t][action_t][sp]
                 try:
-                    self.ec_buffer.pseudo_count[s][action_t][sp] += reweight * coeff[i] * \
-                                                                    self.ec_buffer.next_id[index_t][action_t][
-                                                                        sp]
+                    self.ec_buffer.pseudo_count[s][action_t][sp] += weighted_count
                 except KeyError:
-                    self.ec_buffer.pseudo_count[s][action_t][sp] = reweight * coeff[i] * \
-                                                                   self.ec_buffer.next_id[index_t][action_t][
-                                                                       sp]
-            self.ec_buffer.pseudo_reward[s, action_t] += coeff[i] * self.ec_buffer.reward[index_t, action_t]
+                    self.ec_buffer.pseudo_count[s][action_t][sp] = weighted_count
+                try:
+                    self.ec_buffer.pseudo_prev[sp][(index_t, action_t)] += weighted_count
+                except KeyError:
+                    self.ec_buffer.pseudo_prev[sp][(index_t, action_t)] = weighted_count
+                self.ec_buffer.pseudo_reward[s, action_t] += reweight * coeff[i] * self.ec_buffer.reward[
+                    index_t, action_t]
         if sa_count > self.sa_explore:
             self.ec_buffer.internal_value[index_t, action_t] = 0
         return index_tp1, sa_count
@@ -98,7 +109,9 @@ class KernelBasedPriorSweepProcess(Process):
         self.log("self neighbour", index_t, self.knn_ind)
         assert index_t in self.knn_ind, "self should be a neighbor of self"
         for index in self.knn_ind:
+            # self.log("q before observe", self.ec_buffer.external_value[index, :],index,action_t)
             self.update_q_value(index, action_t)
+            # self.log("q after observe", self.ec_buffer.external_value[index, :], index, action_t)
             self.ec_buffer.state_value_v[index_t] = np.nanmax(self.ec_buffer.external_value[index_t, :])
             priority = abs(
                 self.ec_buffer.state_value_v[index_t] - np.nan_to_num(self.ec_buffer.state_value_u[index_t], copy=True))
@@ -120,11 +133,13 @@ class KernelBasedPriorSweepProcess(Process):
             self.log("backup node", index, "priority", priority, "new value",
                      self.ec_buffer.state_value_v[index],
                      "delta", delta_u)
-            for sa_pair in self.ec_buffer.prev_id[index]:
+            for sa_pair in self.ec_buffer.pseudo_prev[index].keys():
                 state_tm1, action_tm1 = sa_pair
                 # self.log("update s,a,s',delta", state_tm1, action_tm1, index, delta_u)
+                # self.log("q before backup",self.ec_buffer.external_value[state_tm1,:],state_tm1,action_tm1)
                 self.update_q_value_backup(state_tm1, action_tm1, index, delta_u)
                 self.ec_buffer.state_value_v[state_tm1] = np.nanmax(self.ec_buffer.external_value[state_tm1, :])
+                # self.log("q after backup", self.ec_buffer.external_value[index, :], state_tm1,action_tm1)
                 priority = abs(
                     self.ec_buffer.state_value_v[state_tm1] - np.nan_to_num(
                         self.ec_buffer.state_value_u[state_tm1], copy=True))
@@ -148,6 +163,7 @@ class KernelBasedPriorSweepProcess(Process):
         n_sa = sum(self.ec_buffer.pseudo_count[state][action].values())
         n_sasp = self.ec_buffer.pseudo_count[state][action].get(state_tp1, 0)
         trans_p = n_sasp / n_sa
+        assert 0 <= trans_p <= 1, "nsa{} nsap{} trans{}".format(n_sa, n_sasp, trans_p)
         if np.isnan(self.ec_buffer.external_value[state, action]):
             self.ec_buffer.external_value[state, action] = 0
         self.ec_buffer.external_value[state, action] += self.gamma * trans_p * delta_u
@@ -157,7 +173,7 @@ class KernelBasedPriorSweepProcess(Process):
         return ind
 
     def run(self):
-        self.ec_buffer = LRU_KNN_GPU_PS(self.buffer_size, self.latent_dim, self.hash_dim, 'game', self.num_actions)
+        self.ec_buffer = LRU_KNN_PS(self.buffer_size, self.latent_dim, self.hash_dim, 'game', self.num_actions)
         while self.run_sweep:
             self.backup()
             self.recv_msg()

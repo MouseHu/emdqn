@@ -36,11 +36,11 @@ if __name__ == '__main__':
     ps_agent = PSMPAgent(rp_model if args.rp else contrastive_model, exploration, env.observation_space.shape,
                            args.lr,
                            args.buffer_size, env.action_space.n, args.latent_dim, args.gamma, args.knn,
-                           args.eval_epsilon,
+                           args.eval_epsilon, args.queue_threshold,
                            tf_writer)
     # human_agent = HumanAgent(
     #     {"w": 3, "s": 4, "d": 1, "a": 0, "x": 2, "p": 5, "3": 3, "4": 4, "1": 1, "0": 0, "2": 2, "5": 5})
-    # agent = HybridAgent2(ecbp_agent, human_agent, 30)
+    # agent = HybridAgent2(ps_agent, human_agent, 30)
     agent = ps_agent
     value_summary = tf.Summary()
     # qec_summary = tf.Summary()
@@ -129,7 +129,7 @@ if __name__ == '__main__':
                 break
 
             if done:
-                return_len = min(len(non_discount_return) - 1, 10)
+                return_len = min(len(non_discount_return) - 1, 2)
                 # print(return_len)
                 # print(discount_return)
                 sequence = []

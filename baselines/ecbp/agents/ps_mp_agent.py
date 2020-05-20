@@ -14,7 +14,7 @@ from multiprocessing import Pipe
 class PSMPAgent(object):
     def __init__(self, model_func, exploration_schedule, obs_shape, lr=1e-4, buffer_size=1000000,
                  num_actions=6, latent_dim=32,
-                 gamma=0.99, knn=4, eval_epsilon=0.01,
+                 gamma=0.99, knn=4, eval_epsilon=0.01, queue_threshold=5e-5,
                  tf_writer=None):
         self.conn, child_conn = Pipe()
         self.ec_buffer = PriorSweepProcess(num_actions, buffer_size, latent_dim, latent_dim, child_conn, gamma)
@@ -24,6 +24,7 @@ class PSMPAgent(object):
         self.writer = tf_writer
         self.sequence = []
         self.gamma = gamma
+        self.queue_threshold = queue_threshold
         self.num_actions = num_actions
         self.exploration_schedule = exploration_schedule
         self.latent_dim = latent_dim
@@ -75,10 +76,15 @@ class PSMPAgent(object):
                 q = extrinsic_qs
 
             q = np.squeeze(q)
-            q_max = np.max(q)
-            max_action = np.where(q >= q_max - 1e-7)[0]
-            self.log("action selection", max_action)
-            self.log("q", q, q_max)
+            q = np.squeeze(q)
+            # q = np.nan_to_num(q)
+            q_max = np.nanmax(q)
+            if np.isnan(q_max):
+                max_action = np.arange(self.num_actions)
+            else:
+                max_action = np.where(q >= q_max - 1e-7)[0]
+            self.log("action selection", max_action, logtype='info')
+            self.log("q", q, q_max, logtype='info')
             action_selected = np.random.randint(0, len(max_action))
             return max_action[action_selected]
 

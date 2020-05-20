@@ -97,7 +97,7 @@ class LRU_KNN_COUNT_GPU_FIXMEM(object):
         # print("nearest dist", dist[0][0])
         for i in range(len(dist)):
             external_value = 0
-            coeff = np.exp(dist[i])
+            coeff = np.exp(-dist[i])
             coeff = coeff / np.sum(coeff)
             if dist[i][0] < self.threshold:
                 exact_refer.append(True)

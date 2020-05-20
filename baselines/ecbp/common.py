@@ -29,6 +29,7 @@ from baselines.common.misc_util import (
     RunningAvg,
     SimpleMonitor
 )
+from baselines.atari.environment import Environment as atari_env_vast
 from baselines.common.schedules import LinearSchedule, PiecewiseSchedule
 # when updating this to non-deperecated ones, it is important to
 # copy over LazyFrames
@@ -71,6 +72,7 @@ def parse_args():
     parser.add_argument("--knn", type=int, default=4, help="number of k nearest neighbours")
     parser.add_argument("--end_training", type=int, default=0, help="number of pretrain steps")
     parser.add_argument("--eval_epsilon", type=int, default=0.01, help="eval epsilon")
+    parser.add_argument("--queue_threshold", type=int, default=1e-7, help="queue_threshold")
     parser.add_argument('--map_config', type=str,
                         help='The map and config you want to run in MonsterKong.',
                         default='../ple/configs/config_ppo_mk_hard.py')
@@ -139,12 +141,27 @@ def make_env(game_name):
     return env, monitored_env
 
 
+def load_params(subdir, experiment):
+    with open("%s/params.yaml" % subdir, 'rb') as stream:
+        params = yaml.load(stream)
+    experiment_params = params['env_params']['experiments'][experiment]
+    for (key, val) in experiment_params.items():
+        params['env_params'][key] = val
+    params['env_params'].pop('experiments')
+    for (key, val) in params.items():
+        if (not "_params" in key) and (key != 'net_arches'):
+            params['env_params'][key] = val
+            params['model_params'][key] = val
+            params['agent_params'][key] = val
+    return params
+
+
 def create_env(args):
     if args.env == "MK" or args.env == "mk":
         import imp
 
         try:
-            map_config_file = mk_map_config.get(args.env_name,mk_map_config["small"])
+            map_config_file = mk_map_config.get(args.env_name, mk_map_config["small"])
             map_config = imp.load_source('map_config', map_config_file).map_config
         except Exception as e:
             sys.exit(str(e) + '\n'
@@ -170,7 +187,13 @@ def create_env(args):
         env = create_atari_environment(args.env_name, sticky_actions=False)
         env = FrameStack(env, 4)
         # if args.env_name == "Pong":
-        #     env = CropWrapper(env,34,15)
+        #     env = CropWrapper(env, 34, 15)
+    elif args.env == "vast":
+
+        params = load_params("../atari/", args.env_name)
+        params["env_params"]['game'] = args.env_name
+        env = atari_env_vast(**params["env_params"])
+
     else:
         raise NotImplementedError
     if args.seed > 0:
@@ -179,7 +202,7 @@ def create_env(args):
     return env
 
 
-def make_logger(name, filename, stream_level=logging.ERROR, file_level=logging.DEBUG):
+def make_logger(name, filename, stream_level=logging.INFO, file_level=logging.DEBUG):
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
     # create file handler which logs even debug messages
