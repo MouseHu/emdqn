@@ -173,14 +173,14 @@ class KernelBasedPriorSweepProcess(Process):
         return ind
 
     def run(self):
-        self.ec_buffer = LRU_KNN_PS(self.buffer_size, self.latent_dim, self.hash_dim, 'game', self.num_actions)
+        self.ec_buffer = LRU_KNN_GPU_PS(self.buffer_size, self.hash_dim, 'game', 0, self.num_actions)
         while self.run_sweep:
             self.backup()
             self.recv_msg()
 
     def retrieve_q_value(self, obj):
         z, knn = obj
-        extrinsic_qs, intrinsic_qs, find = self.ec_buffer.act_value(z, knn)
+        extrinsic_qs, intrinsic_qs, find = self.ec_buffer.act_value(z, None, knn)
         self.conn.send((0, (extrinsic_qs, intrinsic_qs, find)))
 
     def peek_node(self, obj):

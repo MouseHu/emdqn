@@ -7,11 +7,13 @@ from sklearn.neighbors import KDTree
 # each action -> a lru_knn buffer
 # alpha is for updating the internal reward i.e. count based reward
 class LRU_KNN_PS(object):
-    def __init__(self, capacity, z_dim, env_name, action, num_actions=6, knn=4, debug=True, gamma=0.99, alpha=0.1,
+    def __init__(self, capacity, obs_shape, z_dim, env_name, action, num_actions=6, knn=4, debug=True, gamma=0.99, alpha=0.1,
                  beta=0.01):
+        self.obs = np.empty((capacity,) + obs_shape, dtype=np.uint8)
         self.action = action
         self.alpha = alpha
         self.beta = beta
+        self.z_dim = z_dim
         self.env_name = env_name
         self.capacity = capacity
         self.num_actions = num_actions
@@ -139,7 +141,7 @@ class LRU_KNN_PS(object):
         self.done[src, action] = done
         return sum(self.next_id[src][action].values())
 
-    def add_node(self, key):
+    def add_node(self, key,obs=None):
         # print(np.array(key).shape)
         if self.curr_capacity >= self.capacity:
             # find the LRU entry
@@ -157,6 +159,8 @@ class LRU_KNN_PS(object):
             self.state_value_v[old_index] = np.nan
             self.lru[old_index] = self.tm
             self.count[old_index] = 2
+            if obs is not None:
+                self.obs[old_index] = obs
             self.prev_id[old_index] = []
             # knn_cuda_fixmem.add(self.address, old_index, np.array(key))
             self.tm += 0.01
@@ -167,6 +171,8 @@ class LRU_KNN_PS(object):
             self.states[self.curr_capacity] = key
             self.lru[self.curr_capacity] = self.tm
             self.count[self.curr_capacity] = 2
+            if obs is not None:
+                self.obs[self.curr_capacity] = obs
             # knn_cuda_fixmem.add(self.address, self.curr_capacity, np.array(key))
             self.curr_capacity += 1
             self.tm += 0.01
@@ -185,3 +191,44 @@ class LRU_KNN_PS(object):
         if np.isnan(self.external_value[state, action]):
             self.external_value[state, action] = self.reward[state, action]
         self.external_value[state, action] += self.gamma * trans_p * delta_u
+
+    def sample(self, sample_size):
+        sample_size = min(self.curr_capacity, sample_size)
+        if sample_size % 2 == 1:
+            sample_size -= 1
+        if sample_size < 2:
+            return None
+        indexes = []
+        positives = []
+        values = []
+        actions = []
+        while len(indexes) < sample_size:
+            ind = int(np.random.randint(0, self.curr_capacity, 1))
+            if ind in indexes:
+                continue
+            next_id_tmp = [[(a, ind_tp1) for ind_tp1 in self.next_id[ind][a].keys()] for a in range(self.num_actions)]
+            next_id = []
+            for x in next_id_tmp:
+                next_id += x
+            # next_id = np.array(next_id).reshape(-1)
+            if len(next_id) == 0:
+                continue
+            positive = next_id[np.random.randint(0, len(next_id))][1]
+            action = next_id[np.random.randint(0, len(next_id))][0]
+            indexes.append(ind)
+            positives.append(positive)
+            actions.append(action)
+            values.append(np.nanmax(self.external_value[ind, :]))
+
+        negatives = [int((pos + sample_size // 2) % sample_size) for pos in positives]
+        z_target = [self.states[ind] for ind in indexes]
+        z_pos = [self.states[pos] for pos in positives]
+        z_neg = [self.states[neg] for neg in negatives]
+        return indexes, positives, negatives, z_target, z_pos, z_neg, values, actions
+
+    def update(self, indexes, z_new):
+        self.log("update in buffer", self.curr_capacity)
+        assert len(indexes) == len(z_new), "{}{}".format(len(indexes), len(z_new))
+        assert z_new.shape[1] == self.z_dim
+        for i, ind in enumerate(indexes):
+            self.states[ind] = z_new[i]

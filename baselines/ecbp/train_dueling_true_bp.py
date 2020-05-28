@@ -1,4 +1,4 @@
-from baselines.ecbp.common import *
+from baselines.ecbp.util import *
 from baselines.ecbp.agents.ecbp_agent import ECBPAgent
 from baselines.ecbp.agents.ec_agent import ECAgent
 from baselines.ecbp.agents.human_agent import HumanAgent

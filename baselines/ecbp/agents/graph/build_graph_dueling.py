@@ -282,9 +282,9 @@ def build_train_dueling(make_obs_ph, q_func, model_func, num_actions, optimizer,
             obs_t_input.get(), num_actions,
             scope="hash_func",
             reuse=False)
-        act =  U.function(
+        act = U.function(
             inputs=[obs_t_input],
             outputs=[obs_hash_output]
         )
         update_target = U.function([], [], updates=[update_target_expr])
-        return act, train,update_target
+        return act, train, update_target

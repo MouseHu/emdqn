@@ -9,6 +9,7 @@ from baselines.ecbp.agents.graph.build_graph_dueling import *
 from baselines import logger
 import copy
 import logging
+import time
 
 
 class BaseAgent(object):
@@ -28,21 +29,18 @@ class BaseAgent(object):
         self.rmax = 100000
         self.logger = logging.getLogger(args.agent_name)
         self.eval_epsilon = args.eval_epsilon
-        self.hash_func, _, _ = build_train_dueling(
-            make_obs_ph=lambda name: U.Uint8Input(args.obs_shape, name=name),
-            model_func=model_func,
-            q_func=model,
-            imitate=False,
-            num_actions=args.num_actions,
-            optimizer=tf.train.AdamOptimizer(learning_rate=lr, epsilon=1e-4),
-            gamma=args.gamma,
-            grad_norm_clipping=10,
-        )
+        self.info = {"act_time": 0, "obs_time": 0}
 
     def log(self, *args, logtype='debug', sep=' '):
         getattr(self.logger, logtype)(sep.join(str(a) for a in args))
 
     def act(self, obs, is_train=True):
+        act_time = time.time()
+        action = self._act(obs, is_train)
+        self.info["act_time"] += time.time() - act_time
+        return action
+
+    def _act(self, obs, is_train=True):
         self.obs = obs
         z = np.array(self.hash_func(np.array(obs))).reshape((self.latent_dim,))
         self.z = z
@@ -81,12 +79,17 @@ class BaseAgent(object):
             self.log("action selection", max_action)
             self.log("q", q, q_max)
             action_selected = np.random.randint(0, len(max_action))
-            # if self.debug:
-            #     print("q ", q)
-            #     print("q shape", q.shape, extrinsic_qs.shape, intrinsic_qs.shape)
-            #     print("max action and random", max_action, action_selected)
-            #     print("chosen action", max_action[action_selected])
             return max_action[action_selected]
 
     def observe(self, action, reward, state_tp1, done, train=True):
+        obs_time = time.time()
+        self._observe(action, reward, state_tp1, done, train)
+        self.info["obs_time"] += time.time() - obs_time
+
+    def get_info(self):
+        info = copy.copy(self.info)
+        self.info = {"act_time": 0, "obs_time": 0}
+        return info
+
+    def _observe(self, action, reward, state_tp1, done, train=True):
         pass

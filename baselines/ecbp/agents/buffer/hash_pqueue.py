@@ -76,7 +76,7 @@ class HashPQueue(object):
             del self.d[item]
         except KeyError:
             # Not in queue
-            raise
+            return
         # If elt is last item, remove and return
         if pos == len(self.h) - 1:
             self.h.pop()

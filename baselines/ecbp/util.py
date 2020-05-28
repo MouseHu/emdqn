@@ -1,11 +1,5 @@
 import argparse
-import gym
-import numpy as np
-import os
-import tensorflow as tf
-import tempfile
 import time
-
 import sys
 import yaml
 from baselines.deepq.dqn_utils import *
@@ -15,9 +9,9 @@ from baselines import logger
 from baselines import deepq
 from baselines.ecbp.env.fourrooms import Fourrooms
 from baselines.common.atari_wrappers_deprecated import FrameStack
-from baselines.deepq.replay_buffer import ReplayBufferHash, PrioritizedReplayBuffer
 from baselines.common.atari_lib import MKPreprocessing
 from baselines.common.atari_lib import CropWrapper
+from baselines.common.atari_lib import NoisyEnv
 from baselines.common.atari_lib import DoomPreprocessing
 from baselines.doom.environment import DoomEnvironment
 from baselines.common.misc_util import (
@@ -30,16 +24,19 @@ from baselines.common.misc_util import (
     SimpleMonitor
 )
 from baselines.atari.environment import Environment as atari_env_vast
-from baselines.common.schedules import LinearSchedule, PiecewiseSchedule
-# when updating this to non-deperecated ones, it is important to
-# copy over LazyFrames
-from baselines.common.atari_wrappers_deprecated import wrap_dqn
-from baselines.common.azure_utils import Container
-from baselines.deepq.experiments.atari.model import contrastive_model, rp_model, model
-
-# from baselines.deepq.experiments.atari.lru_knn_count_gpu_fixmem import LRU_KNN_COUNT_GPU_FIXMEM
-from baselines.deepq.experiments.atari.lru_knn_combine_bp import LRU_KNN_COMBINE_BP
 from baselines.common.atari_lib import create_atari_environment
+from baselines.ecbp.agents.ecbp_agent import ECBPAgent
+from baselines.ecbp.agents.ps_agent import PSAgent
+from baselines.ecbp.agents.ps_mp_agent import PSMPAgent
+from baselines.ecbp.agents.ps_mp_learning_agent import PSMPLearnAgent
+from baselines.ecbp.agents.psmp_learning_target_agent import PSMPLearnTargetAgent
+from baselines.ecbp.agents.kbps_mp_agent import KBPSMPAgent
+from baselines.ecbp.agents.kbps_agent import KBPSAgent
+from baselines.ecbp.agents.ec_agent import ECAgent
+from baselines.ecbp.agents.human_agent import HumanAgent
+from baselines.ecbp.agents.hybrid_agent import HybridAgent, HybridAgent2
+from baselines.ecbp.agents.graph.model import representation_model_cnn, representation_model_mlp, rp_model, \
+    contrastive_model
 import logging
 
 mk_map_config = {"small": "../ple/configs/config_ppo_mk.py", "hard": "../ple/configs/config_ppo_mk_hard.py",
@@ -70,6 +67,8 @@ def parse_args():
     parser.add_argument("--target-update-freq", type=int, default=5000,
                         help="number of iterations between every target network update")
     parser.add_argument("--knn", type=int, default=4, help="number of k nearest neighbours")
+    parser.add_argument("--noise_dim", type=int, default=4, help="number of noisy dim")
+    parser.add_argument("--noise_var", type=float, default=1, help="number of noisy var")
     parser.add_argument("--end_training", type=int, default=0, help="number of pretrain steps")
     parser.add_argument("--eval_epsilon", type=int, default=0.01, help="eval epsilon")
     parser.add_argument("--queue_threshold", type=int, default=1e-7, help="queue_threshold")
@@ -94,6 +93,8 @@ def parse_args():
                         help="video path")
     parser.add_argument("--comment", type=str, default=datetime.datetime.now().strftime("%I-%M_%B-%d-%Y"),
                         help="discription for this experiment")
+    parser.add_argument("--base_log_dir", type=str, default="/data1/hh/ecbp",
+                        help="directory in which training state and model should be saved.")
     parser.add_argument("--log_dir", type=str, default="./tflogs",
                         help="directory in which training state and model should be saved.")
     boolean_flag(parser, "load-on-start", default=True,
@@ -113,32 +114,11 @@ def parse_args():
     boolean_flag(parser, "imitate", default=False, help="if baseline use episodic memory instead of network")
     boolean_flag(parser, "rp", default=False, help="whether or not to use random projection")
     boolean_flag(parser, "debug", default=False, help="whether or not to output detail info")
+    boolean_flag(parser, "vector_input", default=False, help="if env is vector input")
+    boolean_flag(parser, "render", default=False, help="if render env")
     # EMDQN
     boolean_flag(parser, "train-latent", default=False, help="whether or not to further train latent")
     return parser.parse_args()
-
-
-def load_params(subdir, experiment):
-    with open("%s/params.yaml" % subdir, 'rb') as stream:
-        params = yaml.load(stream)
-    experiment_params = params['env_params']['experiments'][experiment]
-    for (key, val) in experiment_params.items():
-        params['env_params'][key] = val
-    params['env_params'].pop('experiments')
-    for (key, val) in params.items():
-        if (not "_params" in key) and (key != 'net_arches'):
-            params['env_params'][key] = val
-            params['model_params'][key] = val
-            params['agent_params'][key] = val
-    return params
-
-
-def make_env(game_name):
-    env = gym.make(game_name + "NoFrameskip-v4")
-    monitored_env = SimpleMonitor(env)  # puts rewards and number of steps in info, before environment is wrapped
-    env = wrap_dqn(
-        monitored_env)  # applies a bunch of modification to simplify the observation space (downsample, make b/w)
-    return env, monitored_env
 
 
 def load_params(subdir, experiment):
@@ -193,7 +173,25 @@ def create_env(args):
         params = load_params("../atari/", args.env_name)
         params["env_params"]['game'] = args.env_name
         env = atari_env_vast(**params["env_params"])
+    elif args.env == "mujoco":
+        from gym.envs.registration import register
+        goal_args = [[8.0, 0.0], [8 + 1e-3, 0 + 1e-3]]
+        random_start = False
+        # The episode length for test is 500
+        max_timestep = 500
 
+        register(
+            id='PointMazeTest-v10',
+            entry_point='mujoco.create_maze_env:create_maze_env',
+            kwargs={'env_name': 'DiscretePointMaze', 'goal_args': goal_args, 'maze_size_scaling': 4,
+                    'random_start': random_start},
+            max_episode_steps=max_timestep,
+        )
+        env = gym.make('PointMazeTest-v10')
+    elif args.env == "noise_atari" or args.env == "atari_noise":
+        game_version = 'v0'
+        env = gym.make('{}-{}'.format(args.env_name, game_version))
+        env = NoisyEnv(env, args.noise_dim, args.noise_var)
     else:
         raise NotImplementedError
     if args.seed > 0:
@@ -218,3 +216,31 @@ def make_logger(name, filename, stream_level=logging.INFO, file_level=logging.DE
     # add the handlers to the logger
     logger.addHandler(fh)
     logger.addHandler(ch)
+
+
+def make_agent(args, env, tf_writer):
+    exploration = PiecewiseSchedule([
+        (0, 1),
+        (args.end_training, 1.0),
+        (args.end_training + 500000, 0.05),
+        (args.end_training + 1000000, 0.01),
+    ], outside_value=0.01)
+    agent_dict = {"ECBP": ECBPAgent, "PS": PSAgent, "PSMP": PSMPAgent, "PSMPLearn": PSMPLearnAgent, "KBPS": KBPSAgent,
+                  "KBPSMP": KBPSMPAgent, "Hybrid": HybridAgent2, "Human": HumanAgent}
+    agent_func = agent_dict[args.agent]
+    try:
+        num_actions = env.action_space.n
+    except AttributeError:
+        num_actions = env.unwrapped.pseudo_action_space.n
+    obs_shape = env.observation_space.shape
+    if obs_shape is None or obs_shape == (None,):
+        obs_shape = env.unwrapped.observation_space.shape
+    # print(env.unwrapped.observation_space.shape,"here!")
+    input_type = U.Float32Input if args.vector_input else U.Uint8Input
+    agent = agent_func(representation_model_mlp if args.rp else representation_model_cnn, exploration,
+                       obs_shape, input_type,
+                       args.lr,
+                       args.buffer_size, num_actions, args.latent_dim, args.gamma, args.knn,
+                       args.eval_epsilon, args.queue_threshold, args.batch_size,
+                       tf_writer)
+    return agent

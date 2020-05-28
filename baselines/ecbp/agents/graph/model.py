@@ -172,6 +172,78 @@ def contrastive_model_general(img_in, num_actions, scope, reuse=False):
         return z, v
 
 
+def representation_model_cnn(img_in, num_actions, scope, reuse=False):
+    """As described in https://storage.googleapis.com/deepmind-data/assets/papers/DeepMindNature14236Paper.pdf"""
+    img_size = img_in.shape[1]
+    print("img shape", img_in.shape)
+    with tf.variable_scope(scope, reuse=reuse):
+        out = img_in
+        # coordinate = np.meshgrid()
+
+        with tf.variable_scope("convnet"):
+            # original architecture
+            out = layers.convolution2d(out, num_outputs=32, kernel_size=8, stride=4, activation_fn=tf.nn.relu)
+            out = layers.convolution2d(out, num_outputs=64, kernel_size=4, stride=2, activation_fn=tf.nn.relu)
+            out = layers.convolution2d(out, num_outputs=64, kernel_size=3, stride=1, activation_fn=tf.nn.relu)
+        out = layers.flatten(out)
+
+        out = layers.fully_connected(out, num_outputs=32, activation_fn=tf.nn.relu)
+        z = layers.fully_connected(out, num_outputs=32, activation_fn=None)
+        # normed_z = z / tf.norm(z, axis=1, keepdims=True)
+        # print("normed_z:", normed_z.shape)
+        # with tf.variable_scope("action_value"):
+        #     v_h = layers.fully_connected(z, num_outputs=512, activation_fn=tf.nn.relu)
+        #     v = layers.fully_connected(v_h, num_outputs=1, activation_fn=None)
+        return z
+
+
+# def representation_model_mlp(obs_in, num_actions, scope, reuse=False):
+#     """As described in https://storage.googleapis.com/deepmind-data/assets/papers/DeepMindNature14236Paper.pdf"""
+#     # obs_in = tf.reshape(obs_in, (-1,))
+#     with tf.variable_scope(scope, reuse=reuse):
+#         out = obs_in
+#         # coordinate = np.meshgrid()
+#
+#         with tf.variable_scope("mlp"):
+#             # original architecture
+#             out = layers.fully_connected(out, num_outputs=128, activation_fn=tf.nn.relu)
+#             out = layers.fully_connected(out, num_outputs=64, activation_fn=tf.nn.relu)
+#             out = layers.fully_connected(out, num_outputs=64, activation_fn=tf.nn.relu)
+#         out = layers.flatten(out)
+#
+#         out = layers.fully_connected(out, num_outputs=32, activation_fn=tf.nn.relu)
+#         z = layers.fully_connected(out, num_outputs=32, activation_fn=None)
+#         # normed_z = z / tf.norm(z, axis=1, keepdims=True)
+#         # print("normed_z:", normed_z.shape)
+#         # with tf.variable_scope("action_value"):
+#         #     v_h = layers.fully_connected(z, num_outputs=512, activation_fn=tf.nn.relu)
+#         #     v = layers.fully_connected(v_h, num_outputs=1, activation_fn=None)
+#         return z
+
+def representation_model_mlp(obs_in, num_actions, scope, reuse=False):
+    """As described in https://storage.googleapis.com/deepmind-data/assets/papers/DeepMindNature14236Paper.pdf"""
+    # obs_in = tf.reshape(obs_in, (-1,))
+    with tf.variable_scope(scope, reuse=reuse):
+        out = obs_in
+        # coordinate = np.meshgrid()
+
+        # with tf.variable_scope("mlp"):
+        #     # original architecture
+        #     out = layers.fully_connected(out, num_outputs=128, activation_fn=tf.nn.relu)
+        #     out = layers.fully_connected(out, num_outputs=64, activation_fn=tf.nn.relu)
+        #     out = layers.fully_connected(out, num_outputs=64, activation_fn=tf.nn.relu)
+        # out = layers.flatten(out)
+        #
+        # out = layers.fully_connected(out, num_outputs=32, activation_fn=tf.nn.relu)
+        z = layers.fully_connected(out, num_outputs=6, activation_fn=None)
+        # normed_z = z / tf.norm(z, axis=1, keepdims=True)
+        # print("normed_z:", normed_z.shape)
+        # with tf.variable_scope("action_value"):
+        #     v_h = layers.fully_connected(z, num_outputs=512, activation_fn=tf.nn.relu)
+        #     v = layers.fully_connected(v_h, num_outputs=1, activation_fn=None)
+        return z
+
+
 def dueling_model(img_in, num_actions, scope, reuse=False):
     """As described in https://arxiv.org/abs/1511.06581"""
     with tf.variable_scope(scope, reuse=reuse):
@@ -212,7 +284,7 @@ def model(img_in, num_actions, scope, reuse=False):
         return out
 
 
-def simhash_model(img_in, scope, decoder='SPD',reuse=False):
+def simhash_model(img_in, scope, decoder='SPD', reuse=False):
     """As described in https://storage.googleapis.com/deepmind-data/assets/papers/DeepMindNature14236Paper.pdf"""
     with tf.variable_scope(scope, reuse=reuse):
         out = img_in
@@ -247,7 +319,7 @@ def simhash_model(img_in, scope, decoder='SPD',reuse=False):
             else:
                 print("Unrecognized decoder type.")
                 raise NotImplementedError
-        return code,reconstruct
+        return code, reconstruct
 
 
 def ib_dueling_model(img_in, num_actions, scope, reuse=False):

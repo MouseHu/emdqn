@@ -6,6 +6,7 @@ import tensorflow as tf
 from baselines.ecbp.agents.graph.build_graph_dueling import *
 from baselines import logger
 import copy
+import logging
 
 
 class ECAgent(object):
@@ -26,7 +27,8 @@ class ECAgent(object):
         self.latent_dim = latent_dim
         self.knn = knn
         self.steps = 0
-        self.heuristic_exploration = True
+        self.logger = logging.getLogger("ec")
+        self.heuristic_exploration = False
         self.hash_func, _, _ = build_train_dueling(
             make_obs_ph=lambda name: U.Uint8Input(obs_shape, name=name),
             model_func=model_func,
@@ -38,6 +40,9 @@ class ECAgent(object):
             grad_norm_clipping=10,
         )
         self.eval_epsilon = 0.01
+
+    def log(self, *args, logtype='debug', sep=' '):
+        getattr(self.logger, logtype)(sep.join(str(a) for a in args))
 
     def act(self, obs, is_train=True):
         self.obs = obs
@@ -53,11 +58,11 @@ class ECAgent(object):
         else:
             extrinsic_qs = np.zeros((self.num_actions, 1))
             intrinsic_qs = np.zeros((self.num_actions, 1))
-            finds = np.zeros((1,))
+            finds = np.zeros((self.num_actions,))
             # print(self.num_actions)
             for a in range(self.num_actions):
                 extrinsic_qs[a], intrinsic_qs[a], find = self.ec_buffer[a].act_value(np.array([z]), self.knn)
-                finds += sum(find)
+                finds[a] = find
             if is_train and self.heuristic_exploration:
                 q = extrinsic_qs + intrinsic_qs
             else:
@@ -66,6 +71,8 @@ class ECAgent(object):
             q_max = np.max(q)
             max_action = np.where(q >= q_max - 1e-7)[0]
             action_selected = np.random.randint(0, len(max_action))
+            self.log("capacity", [self.ec_buffer[a].curr_capacity for a in range(self.num_actions)])
+            self.log("ec_action_selection", finds, q, q_max, max_action)
             return max_action[action_selected]
 
     def observe(self, action, reward, state_tp1, done, train=True):
@@ -87,6 +94,7 @@ class ECAgent(object):
             exRtn.append(exrtd)
             inRtn.append(inrtd)
             q, inrtd = self.ec_buffer[a].peek(z, exrtd, inrtd, True)
+            self.log("update sequence", q, exrtd, a)
             if q is None:  # new action
                 self.ec_buffer[a].add(z, exrtd, inrtd)
                 inrtd = self.ec_buffer[a].beta

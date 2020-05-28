@@ -65,7 +65,7 @@ ImplicitQuantileNetworkType = collections.namedtuple(
 
 
 @gin.configurable
-def create_atari_environment(game_name=None, sticky_actions=True):
+def create_atari_environment(game_name=None, sticky_actions=True, no_frame_skip=True):
     """Wraps an Atari 2600 Gym environment with some basic preprocessing.
 
     This preprocessing matches the guidelines proposed in Machado et al. (2017),
@@ -90,7 +90,8 @@ def create_atari_environment(game_name=None, sticky_actions=True):
     """
     assert game_name is not None
     game_version = 'v0' if sticky_actions else 'v4'
-    full_game_name = '{}NoFrameskip-{}'.format(game_name, game_version)
+    full_game_name = '{}NoFrameskip-{}'.format(game_name, game_version) if no_frame_skip else '{}-{}'.format(game_name,
+                                                                                                             game_version)
     env = gym.make(full_game_name)
     # Strip out the TimeLimit wrapper from Gym, which caps us at 100k frames. We
     # handle this time limit internally instead, which lets us cap at 108k frames
@@ -940,3 +941,27 @@ class CropWrapper(gym.Wrapper):
 
     def reset(self):
         return self.env.reset()
+
+
+class NoisyEnv(gym.Wrapper):
+    def __init__(self, env, noisy_dim, noisy_var):
+        super(NoisyEnv, self).__init__(env)
+        assert noisy_dim >= 0 and noisy_var >= 0
+        assert type(env.observation_space) is gym.spaces.Box
+        self.noisy_dim = noisy_dim
+        self.noisy_var = noisy_var
+        low = np.concatenate((-10 * noisy_var * np.ones(noisy_dim), env.observation_space.low))
+        high = np.concatenate((-10 * noisy_var * np.ones(noisy_dim), env.observation_space.high))
+        self.observation_space = gym.spaces.Box(low, high)
+
+    def step(self, action):
+        obs, reward, done, info = self.env.step(action)
+        noise = self.noisy_var * np.random.randn(self.noisy_dim)
+        new_obs = np.concatenate((noise, obs))
+        return new_obs, reward, done, info
+
+    def reset(self):
+        obs = self.env.reset()
+        noise = self.noisy_var * np.random.randn(self.noisy_dim)
+        new_obs = np.concatenate((noise, obs))
+        return new_obs

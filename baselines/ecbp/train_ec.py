@@ -1,4 +1,4 @@
-from baselines.ecbp.common import *
+from baselines.ecbp.util import *
 from baselines.ecbp.agents.ecbp_agent import ECBPAgent
 from baselines.ecbp.agents.ec_agent import ECAgent
 from baselines.ecbp.agents.human_agent import HumanAgent
@@ -15,8 +15,8 @@ if __name__ == '__main__':
     # env = GIFRecorder(video_path=args.video_path + "/{}/".format(args.comment), record_video=True, env=env)
     print("obs shape", env.observation_space.shape)
     subdir = (datetime.datetime.now()).strftime("%m-%d-%Y-%H:%M:%S") + " " + args.comment
-    tf_writer = tf.summary.FileWriter(os.path.join(args.log_dir, subdir), tf.get_default_graph())
-
+    tf_writer = tf.summary.FileWriter(os.path.join(args.base_log_dir, args.log_dir, subdir), tf.get_default_graph())
+    make_logger("ec", os.path.join(args.base_log_dir, args.log_dir, subdir, "ec_logger.log"))
     exploration = PiecewiseSchedule([
         (0, 1),
         (args.end_training, 1.0),
@@ -117,7 +117,7 @@ if __name__ == '__main__':
                 break
 
             if done:
-                return_len = min(len(non_discount_return) - 1, 10)
+                return_len = min(len(non_discount_return) - 1, 1)
                 # print(return_len)
                 # print(discount_return)
                 sequence = []

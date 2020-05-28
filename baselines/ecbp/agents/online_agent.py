@@ -8,11 +8,11 @@ import copy
 
 
 class OnlineAgent(object):
-    def __init__(self, model_func, exploration_schedule, obs_shape, lr=1e-4, buffer_size=1000000,
+    def __init__(self, model_func, exploration_schedule, obs_shape, input_type, lr=1e-4, buffer_size=1000000,
                  num_actions=6, latent_dim=32,
                  gamma=0.99, knn=4,
                  tf_writer=None):
-        self.ec_buffer = LRU_KNN_COMBINE(num_actions, buffer_size, latent_dim, latent_dim, input_dims, 'game')
+        self.ec_buffer = LRU_KNN_COMBINE(num_actions, buffer_size, latent_dim, latent_dim, obs_shape, 'game')
         self.obs = None
         self.z = None
         self.state_tp1 = None
@@ -26,7 +26,7 @@ class OnlineAgent(object):
         self.steps = 0
         self.heuristic_exploration = True
         self.hash_func, _, _ = build_train_dueling(
-            make_obs_ph=lambda name: U.Uint8Input(obs_shape, name=name),
+            make_obs_ph=lambda name: input_type(obs_shape, name=name),
             model_func=model_func,
             q_func=model,
             imitate=False,

@@ -34,10 +34,10 @@ class LRU_KNN_COUNT_GPU_FIXMEM(object):
         if self.curr_capacity == 0:
             return None, self.rmax
         # print(np.array(key).shape)
-        key = np.array(key, copy=True)
+        key = np.array(key, copy=True).squeeze()
         if len(key.shape) == 1:
             key = key[np.newaxis, ...]
-        dist, ind = knn_cuda_fixmem.knn(self.address, key, 1, self.curr_capacity)
+        dist, ind = knn_cuda_fixmem.knn(self.address, key, 1, int(self.curr_capacity))
         dist, ind = np.transpose(dist), np.transpose(ind - 1)
         ind = ind[0][0]
         # print(dist.shape,ind.shape)
@@ -58,10 +58,10 @@ class LRU_KNN_COUNT_GPU_FIXMEM(object):
         # knn = min(self.curr_capacity, knn)
         if self.curr_capacity < knn:
             return self.beta, self.beta
-        key = np.array(key, copy=True)
+        key = np.array(key, copy=True).squeeze()
         if len(key.shape) == 1:
             key = key[np.newaxis, ...]
-        dist, ind = knn_cuda_fixmem.knn(self.address, key, knn, self.curr_capacity)
+        dist, ind = knn_cuda_fixmem.knn(self.address, key, knn, int(self.curr_capacity))
         dist, ind = np.transpose(dist), np.transpose(ind - 1)
         coeff = np.exp(dist[0])
         coeff = coeff / np.sum(coeff)
@@ -88,10 +88,10 @@ class LRU_KNN_COUNT_GPU_FIXMEM(object):
                 exact_refer.append(False)
             return external_values, internal_values, np.array(exact_refer)
 
-        key = np.array(key, copy=True)
+        key = np.array(key, copy=True).squeeze()
         if len(key.shape) == 1:
             key = key[np.newaxis, ...]
-        dist, ind = knn_cuda_fixmem.knn(self.address, key, knn, self.curr_capacity)
+        dist, ind = knn_cuda_fixmem.knn(self.address, key, knn, int(self.curr_capacity))
         dist, ind = np.transpose(dist), np.transpose(ind - 1)
         # print(dist.shape, ind.shape, len(key), key.shape)
         # print("nearest dist", dist[0][0])
@@ -130,7 +130,7 @@ class LRU_KNN_COUNT_GPU_FIXMEM(object):
             self.internal_value[old_index] = internal_value
             self.lru[old_index] = self.tm
             self.count[old_index] = 2
-            knn_cuda_fixmem.add(self.address, old_index, np.array(key))
+            knn_cuda_fixmem.add(self.address, int(old_index), np.array(key))
 
         else:
             self.states[self.curr_capacity] = key
@@ -138,7 +138,7 @@ class LRU_KNN_COUNT_GPU_FIXMEM(object):
             self.internal_value[self.curr_capacity] = internal_value
             self.lru[self.curr_capacity] = self.tm
             self.count[self.curr_capacity] = 2
-            knn_cuda_fixmem.add(self.address, self.curr_capacity, np.array(key))
+            knn_cuda_fixmem.add(self.address, int(self.curr_capacity), np.array(key))
             self.curr_capacity += 1
         self.tm += 0.01
 
