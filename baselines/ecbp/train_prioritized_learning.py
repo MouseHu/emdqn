@@ -56,8 +56,9 @@ if __name__ == '__main__':
     #                    args.lr,
     #                    args.buffer_size, env.action_space.n, args.latent_dim, args.gamma, args.knn, tf_writer)
     # agent = ec_agent
-    ps_agent = ECDebugAgent(rp_model if args.rp else contrastive_model,
+    # ps_agent = ECDebugAgent(rp_model if args.rp else contrastive_model,
     # ps_agent = PSMPLearnTargetAgent(representation_model_mlp if args.vector_input else representation_model_cnn,
+    ps_agent = PSMPLearnTargetAgent(rp_model if args.rp else contrastive_model ,
                                     exploration,
                                     obs_shape, args.vector_input,
                                     args.lr,

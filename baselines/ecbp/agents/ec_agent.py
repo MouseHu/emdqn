@@ -5,6 +5,8 @@ from baselines.ecbp.agents.graph.model import *
 import tensorflow as tf
 from baselines.ecbp.agents.graph.build_graph_dueling import *
 from baselines import logger
+from baselines.ecbp.agents.graph.build_graph_contrast_target import *
+
 import copy
 import logging
 
@@ -29,6 +31,18 @@ class ECAgent(object):
         self.steps = 0
         self.logger = logging.getLogger("ec")
         self.heuristic_exploration = False
+        self.loss_type = ["contrast"]
+        input_type = U.Uint8Input
+        # self.hash_func, _,_,_ = build_train_contrast_target(
+        #     make_obs_ph=lambda name: input_type(obs_shape, name=name),
+        #     model_func=model_func,
+        #     num_actions=num_actions,
+        #     optimizer=tf.train.AdamOptimizer(learning_rate=lr, epsilon=1e-4),
+        #     gamma=gamma,
+        #     grad_norm_clipping=10,
+        #     latent_dim=latent_dim,
+        #     loss_type=self.loss_type
+        # )
         self.hash_func, _, _ = build_train_dueling(
             make_obs_ph=lambda name: U.Uint8Input(obs_shape, name=name),
             model_func=model_func,
@@ -39,6 +53,7 @@ class ECAgent(object):
             gamma=gamma,
             grad_norm_clipping=10,
         )
+        self.finds = [0, 0]
         self.eval_epsilon = 0.01
 
     def log(self, *args, logtype='debug', sep=' '):
@@ -67,7 +82,8 @@ class ECAgent(object):
                 q = extrinsic_qs + intrinsic_qs
             else:
                 q = extrinsic_qs
-
+            self.finds[0] += sum(finds)
+            self.finds[1] += self.num_actions
             q_max = np.max(q)
             max_action = np.where(q >= q_max - 1e-7)[0]
             action_selected = np.random.randint(0, len(max_action))
@@ -80,6 +96,11 @@ class ECAgent(object):
             return
         self.sequence.append((copy.deepcopy(self.z), action, reward, done))
         self.state_tp1 = state_tp1
+        if done:
+            find_summary = tf.Summary(
+                value=[tf.Summary.Value(tag="find rate", simple_value=self.finds[0] / (self.finds[1] + 1e-9))])
+            self.writer.add_summary(find_summary, global_step=self.steps)
+            self.finds = [0, 0]
         if done and train:
             self.update_sequence()
 

@@ -43,19 +43,29 @@ class PSMPLearnTargetAgent(object):
         self.train_step = 4
         self.alpha = 1
         self.burnin = 2000
-        self.burnout = 10000000
-        self.update_target_freq = 1000
+        self.burnout = 1000000000
+        self.update_target_freq = 10000
         self.loss_type = ["contrast"]
         input_type = U.Float32Input if vector_input else U.Uint8Input
-        self.hash_func, self.train_func, self.eval_func, self.norm_func, self.update_target_func = build_train_contrast_target(
-            make_obs_ph=lambda name: input_type(obs_shape, name=name),
+        # self.hash_func, self.train_func, self.eval_func, self.norm_func, self.update_target_func = build_train_contrast_target(
+        #     make_obs_ph=lambda name: input_type(obs_shape, name=name),
+        #     model_func=model_func,
+        #     num_actions=num_actions,
+        #     optimizer=tf.train.AdamOptimizer(learning_rate=lr, epsilon=1e-4),
+        #     gamma=gamma,
+        #     grad_norm_clipping=10,
+        #     latent_dim=latent_dim,
+        #     loss_type=self.loss_type
+        # )
+        self.hash_func, _, _ = build_train_dueling(
+            make_obs_ph=lambda name: U.Uint8Input(obs_shape, name=name),
             model_func=model_func,
+            q_func=model,
+            imitate=False,
             num_actions=num_actions,
             optimizer=tf.train.AdamOptimizer(learning_rate=lr, epsilon=1e-4),
             gamma=gamma,
             grad_norm_clipping=10,
-            latent_dim=latent_dim,
-            loss_type=self.loss_type
         )
         self.finds = [0, 0]
 
@@ -76,29 +86,11 @@ class PSMPLearnTargetAgent(object):
         # sample
         self.log("begin training")
         samples = self.send_and_receive(4, self.batch_size)
-        index_tar, index_pos, index_neg, old_z_tar, old_z_pos, old_z_neg, value_tar, action_tar = samples
+        index_tar, index_pos, index_neg, value_tar, action_tar, neighbours_index, neighbours_value = samples
         obs_tar = [self.replay_buffer[ind] for ind in index_tar]
         obs_pos = [self.replay_buffer[ind] for ind in index_pos]
         obs_neg = [self.replay_buffer[ind] for ind in index_neg]
-        # assert np.max(index_tar) <= self.cur_capacity, index_tar
-        # assert np.max(index_pos) <= self.cur_capacity, index_pos
-        # assert np.max(index_neg) <= self.cur_capacity, index_neg
-        # validate check
-        # z_tar_check = np.array(self.hash_func(np.array(obs_tar)))[0]
-        # z_pos_check = np.array(self.hash_func(np.array(obs_pos)))[0]
-        # z_neg_check = np.array(self.hash_func(np.array(obs_neg)))[0]
-        # tar_diff = np.linalg.norm(np.array(old_z_tar) - z_tar_check, axis=1)
-        # pos_diff = np.linalg.norm(np.array(old_z_pos) - z_pos_check, axis=1)
-        # neg_diff = np.linalg.norm(np.array(old_z_neg) - z_neg_check, axis=1)
-        # self.log("old_z_tar", np.array(old_z_tar))
-        # self.log("z_tar_check", z_tar_check)
-        # self.log("old_z_pos", np.array(old_z_pos))
-        # self.log("z_pos_check", z_pos_check)
-        # self.log("old_z_neg", np.array(old_z_neg))
-        # self.log("z_neg_check", z_neg_check)
-        # assert np.average(tar_diff) < 1e-5, "{}{}".format(tar_diff, index_tar)
-        # assert np.average(pos_diff) < 1e-5, "{}{}".format(pos_diff, index_pos)
-        # assert np.average(neg_diff) < 1e-5, "{}{}".format(neg_diff, index_neg)
+        obs_neighbour = [self.replay_buffer[ind] for ind in neighbours_index]
         if "regression" in self.loss_type:
             value_original = self.norm_func(np.array(obs_tar))
             value_tar = np.array(value_tar)
@@ -118,20 +110,12 @@ class PSMPLearnTargetAgent(object):
             input += [action_tar]
             if "contrast" not in self.loss_type:
                 input += [obs_pos]
+        if "fit" in self.loss_type:
+            input += [obs_neighbour, np.nan_to_num(neighbours_value)]
+            if "regression" not in self.loss_type:
+                input += [np.nan_to_num(value_tar)]
         func = self.train_func if self.steps < self.burnout else self.eval_func
-        if "contrast" in self.loss_type:
-            z_tar, z_pos, z_neg, loss, summary = func(*input)
-            # self.log(np.array(z_tar.shape),np.array(z_pos.shape),np.array(z_neg.shape),np.array(index_tar).shape)
-            # self.send_and_receive(5, (index_tar, z_tar))
-            # self.send_and_receive(5, (index_pos, z_pos))
-            # self.send_and_receive(5, (index_neg, z_neg))
-        elif "linear_model" in self.loss_type:
-            z_tar, z_pos, loss, summary = func(*input)
-            # self.send_and_receive(5, (index_tar, z_tar))
-            # self.send_and_receive(5, (index_pos, z_pos))
-        else:
-            z_tar, loss, summary = func(*input)
-            # self.send_and_receive(5, (index_tar, z_tar))
+        loss, summary = func(*input)
         self.log("finish training")
         self.writer.add_summary(summary, global_step=self.steps)
 
@@ -151,6 +135,7 @@ class PSMPLearnTargetAgent(object):
         self.log("finish updating target")
 
     def act(self, obs, is_train=True):
+
         if is_train:
             self.steps += 1
             if self.steps % 100 == 0:
@@ -175,7 +160,7 @@ class PSMPLearnTargetAgent(object):
             extrinsic_qs, intrinsic_qs, find = self.send_and_receive(0, (np.array([self.z]), None, self.knn))
             extrinsic_qs, intrinsic_qs = np.array(extrinsic_qs), np.array(intrinsic_qs)
             self.finds[0] += sum(find)
-            self.finds[1] += self.num_actions
+            self.finds[1] += 1
             if is_train:
                 q = extrinsic_qs
             else:
@@ -194,6 +179,8 @@ class PSMPLearnTargetAgent(object):
             return max_action[action_selected]
 
     def observe(self, action, reward, state_tp1, done, train=True):
+        # if self.steps <= 1:
+        #     self.update_target_func()
         z_tp1 = self.hash_func(np.array(state_tp1)[np.newaxis, ...])
         z_tp1 = np.array(z_tp1).reshape((self.latent_dim,))
         # z_tp1, h_tp1 = np.array(self.hash_func(np.array(state_tp1)[np.newaxis, ...])).reshape((self.latent_dim,))

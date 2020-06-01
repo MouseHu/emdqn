@@ -72,6 +72,7 @@ import baselines.common.tf_util as U
 import numpy as np
 import copy
 
+
 def build_act_contrast_target(make_obs_ph, model_func, num_actions, scope="deepq", secondary_scope="model_func",
                               reuse=None):
     with tf.variable_scope(scope, reuse=reuse):
@@ -108,7 +109,7 @@ def contrastive_loss_fc(emb_cur, emb_next, emb_neq, margin=1, c_type='origin'):
 
 def build_train_contrast_target(make_obs_ph, model_func, num_actions, optimizer, grad_norm_clipping=None, gamma=1.0,
                                 scope="mfec",
-                                latent_dim=32, alpha=0.1, beta=0.1, theta=0.1, loss_type=["contrast"],
+                                latent_dim=32, alpha=0.1, beta=0.1, theta=0.1, loss_type=["contrast"], knn=4,
                                 c_loss_type="sqmargin",
                                 reuse=None):
     """Creates the train function:
@@ -163,10 +164,13 @@ def build_train_contrast_target(make_obs_ph, model_func, num_actions, optimizer,
         obs_input_query = U.ensure_tf_input(make_obs_ph("obs_query"))
         obs_input_positive = U.ensure_tf_input(make_obs_ph("enc_obs_pos"))
         obs_input_negative = U.ensure_tf_input(make_obs_ph("enc_obs_neg"))
+        obs_input_neighbour = U.ensure_tf_input(make_obs_ph("enc_obs_neighbour"))
 
         value_input_query = tf.placeholder(tf.float32, [None], name="value")
+        value_input_neighbour = tf.placeholder(tf.float32, [None, knn], name="neighbour_value")
         action_embedding = tf.Variable(tf.random_normal([num_actions, latent_dim], stddev=1), name="action_embedding")
         action_input = tf.placeholder(tf.int32, [None], name="action")
+
         inputs = [obs_input_query]
         if "contrast" in loss_type:
             inputs += [obs_input_positive, obs_input_negative]
@@ -176,6 +180,13 @@ def build_train_contrast_target(make_obs_ph, model_func, num_actions, optimizer,
             inputs += [action_input]
             if "contrast" not in loss_type:
                 inputs += [obs_input_positive]
+        if "fit" in loss_type:
+            # if "contrast" not in loss_type:
+            #     inputs+=[]
+            inputs += [obs_input_neighbour, value_input_neighbour]
+            if "regression" not in loss_type:
+                inputs += [value_input_query]
+
         z_old = model_func(
             obs_input_query.get(), num_actions,
             scope="target_model_func",
@@ -193,22 +204,37 @@ def build_train_contrast_target(make_obs_ph, model_func, num_actions, optimizer,
         z_pos = model_func(
             obs_input_positive.get(), num_actions,
             scope="model_func", reuse=True)
-
-        z_neg = model_func(
-            obs_input_negative.get(), num_actions,
-            scope="model_func", reuse=True)
+        if "contrast" in loss_type:
+            z_neg = model_func(
+                obs_input_negative.get(), num_actions,
+                scope="model_func", reuse=True)
 
         z_pos = tf.reshape(z_pos, [-1, latent_dim])
         z_tar = tf.reshape(z, [-1, latent_dim])
-        z_neg = tf.reshape(z_neg, [-1, latent_dim])
+        if "contrast" in loss_type:
+            z_neg = tf.reshape(z_neg, [-1, latent_dim])
+            contrast_loss = contrastive_loss_fc(z_tar, z_pos, z_neg, c_type=c_loss_type)
 
-        contrast_loss = contrastive_loss_fc(z_tar, z_pos, z_neg, c_type=c_loss_type)
+        z_neighbour = model_func(
+            obs_input_neighbour.get(), num_actions,
+            scope="model_func",
+            reuse=True)
+        z_neighbour = tf.reshape(z_neighbour, [-1, latent_dim, knn])
+        neighbour_dist = tf.sqrt(
+            tf.reduce_sum(tf.square(tf.tile(tf.expand_dims(z_tar, -1), [1, 1, knn]) - z_neighbour), axis=1))
+        # dist shape [None,knn]
+        neighbour_coeff = tf.math.softmax(-neighbour_dist)
+        # neighbour_coeff = neighbour_coeff / tf.reduce_sum(neighbour_coeff, axis=1)
+        fit_value = tf.reduce_sum(tf.multiply(neighbour_coeff, value_input_neighbour))
+        fit_loss = tf.reduce_mean(tf.square(fit_value - value_input_query))
 
-        regression_loss = tf.reduce_mean(tf.squared_difference(tf.norm(z_tar, axis=1), alpha * value_input_query))
+        regularization_loss = -tf.reduce_mean(U.huber_loss(z_tar, 0.01))
+        regression_loss = tf.reduce_mean(
+            tf.squared_difference(tf.norm(z_tar, axis=1), alpha * value_input_query)) + regularization_loss
 
         action_embeded = tf.matmul(tf.one_hot(action_input, num_actions), action_embedding)
-        model_loss = tf.reduce_mean(tf.squared_difference(action_embeded + z_tar, z_pos))
-        print("shape:", z_tar.shape, z_pos.shape, z_neg.shape, action_embeded.shape)
+        model_loss = tf.reduce_mean(tf.squared_difference(action_embeded + z_tar, z_pos)) + 0.01 * regularization_loss
+        print("shape:", z_tar.shape, z_pos.shape, action_embeded.shape)
         # contrast_loss = tf.reduce_mean(tf.log(sum_negative) - positive)
         # print("shape2:", z.shape, negative.shape, positive.shape)
         # prediction_loss = tf.losses.mean_squared_error(value_input, v)
@@ -217,9 +243,10 @@ def build_train_contrast_target(make_obs_ph, model_func, num_actions, optimizer,
             total_loss += contrast_loss
         if "regression" in loss_type:
             total_loss += beta * regression_loss
-        elif "linear_model" in loss_type:
+        if "linear_model" in loss_type:
             total_loss += theta * model_loss
-
+        if "fit" in loss_type:
+            total_loss += beta * fit_loss
         model_func_vars = U.scope_vars(U.absolute_scope_name("model_func"))
         model_func_vars_update = copy.copy(model_func_vars)
         if "linear_model" in loss_type:
@@ -248,15 +275,20 @@ def build_train_contrast_target(make_obs_ph, model_func, num_actions, optimizer,
         # Create callable functions
         # update_target_fn will be called periodically to copy Q network to target Q network
         z_var_summary = tf.summary.scalar("z_var", tf.reduce_mean(tf.math.reduce_std(z, axis=1)))
-        negative_summary = tf.summary.scalar("negative_dist", tf.reduce_mean(emb_dist(z_tar, z_neg)))
+        if "contrast" in loss_type:
+            negative_summary = tf.summary.scalar("negative_dist", tf.reduce_mean(emb_dist(z_tar, z_neg)))
         positive_summary = tf.summary.scalar("positive_dist", tf.reduce_mean(emb_dist(z_tar, z_pos)))
-        contrast_loss_summary = tf.summary.scalar("contrast loss", tf.reduce_mean(contrast_loss))
-        regression_loss_summary = tf.summary.scalar("regression loss", tf.reduce_mean(contrast_loss))
-        model_loss_summary = tf.summary.scalar("model loss", tf.reduce_mean(contrast_loss))
+        if "contrast" in loss_type:
+            contrast_loss_summary = tf.summary.scalar("contrast loss", tf.reduce_mean(contrast_loss))
+        regularization_loss_summary = tf.summary.scalar("regularization loss", tf.reduce_mean(regularization_loss))
+        regression_loss_summary = tf.summary.scalar("regression loss", tf.reduce_mean(regression_loss))
+        model_loss_summary = tf.summary.scalar("model loss", tf.reduce_mean(model_loss))
+        fit_loss_summary = tf.summary.scalar("fit loss", tf.reduce_mean(fit_loss))
+        # fit_loss_summary = tf.summary.scalar("fit loss", tf.reduce_mean(fit_loss))
         # prediction_loss_summary = tf.summary.scalar("prediction loss", tf.reduce_mean(prediction_loss))
         total_loss_summary = tf.summary.scalar("total loss", tf.reduce_mean(total_loss))
 
-        summaries = [z_var_summary, total_loss_summary]
+        summaries = [z_var_summary, total_loss_summary, regularization_loss_summary]
 
         if "contrast" in loss_type:
             summaries += [negative_summary, positive_summary, contrast_loss_summary]
@@ -264,13 +296,12 @@ def build_train_contrast_target(make_obs_ph, model_func, num_actions, optimizer,
             summaries.append(regression_loss_summary)
         if "linear_model" in loss_type:
             summaries.append(model_loss_summary)
+            if "contrast" not in loss_type:
+                summaries.append(positive_summary)
+        if "fit" in loss_type:
+            summaries.append(fit_loss_summary)
         summary = tf.summary.merge(summaries)
-        outputs = [z_tar]
-        if "contrast" in loss_type:
-            outputs += [z_pos, z_neg]
-        elif "linear_model" in loss_type:
-            outputs += [z_pos]
-        outputs += [total_loss, summary]
+        outputs = [total_loss, summary]
         train = U.function(
             inputs=inputs,
             outputs=outputs,

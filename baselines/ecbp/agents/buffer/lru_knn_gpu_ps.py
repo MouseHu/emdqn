@@ -38,13 +38,14 @@ class LRU_KNN_GPU_PS(object):
         # self.best_action = np.zeros((capacity, num_actions), dtype=np.int)
         self.curr_capacity = 0
         self.tm = 0.0
-        self.threshold = 1e-4
+        self.threshold = 1e-7
         self.knn = knn
         self.gamma = gamma
         self.b = 0.01
         self.z_dim = z_dim
         # self.beta = beta
-        self.address = knn_cuda_fixmem.allocate(capacity, z_dim, 1, knn * self.num_actions)
+        batch_size = 32
+        self.address = knn_cuda_fixmem.allocate(capacity, z_dim, batch_size, knn * self.num_actions)
         self.logger = logging.getLogger("ecbp")
 
     def log(self, *args, logtype='debug', sep=' '):
@@ -55,6 +56,7 @@ class LRU_KNN_GPU_PS(object):
             return -1, [], []
         # print(np.array(key).shape)
         key = np.array(key, copy=True).squeeze()
+        key_norm= np.linalg.norm(key)
         if len(key.shape) == 1:
             key = key[np.newaxis, ...]
         # self.log("begin knn",self.knn,self.curr_capacity,self.address,key.shape)
@@ -63,12 +65,13 @@ class LRU_KNN_GPU_PS(object):
         # self.log("finish knn")
         dist, ind = np.transpose(dist), np.transpose(ind - 1)
         ind_n = ind[0][0]
-        if dist[0][0] < self.threshold:
+        self.log("key_norm in peek", key_norm)
+        if dist[0][0] < self.threshold*key_norm:
             # if ind_n != ind_hash:
             #     self.log("hash not found", ind_hash)
             return ind_n, dist, ind
         # if ind_n == -1:
-        self.log("pick exact failed. dist", dist[0][0], "z", key,"ind",ind_n)
+        self.log("pick exact failed. dist", dist[0][0], "z", key, "ind", ind_n)
         # if -1 != ind_hash and dist[0][0] > self.threshold:
         #     self.log("knn not found", ind_hash)
         return -1, dist, ind
@@ -87,6 +90,8 @@ class LRU_KNN_GPU_PS(object):
             return external_values, internal_values, np.array(exact_refer)
 
         key = np.array(key, copy=True).squeeze()
+        key_norm= np.linalg.norm(key,ord=2)
+        self.log("key_norm in act value",key_norm)
         if len(key.shape) == 1:
             key = key[np.newaxis, ...]
         dist, ind = knn_cuda_fixmem.knn(self.address, key, knn, int(self.curr_capacity))
@@ -111,7 +116,7 @@ class LRU_KNN_GPU_PS(object):
             coeff = coeff - np.max(coeff)
             coeff = np.exp(coeff)
             coeff = coeff / np.sum(coeff)
-            if dist[i][0] < self.threshold and not np.isnan(self.external_value[ind[i][0]]).all():
+            if dist[i][0] < self.threshold*key_norm and not np.isnan(self.external_value[ind[i][0]]).all():
 
                 self.log("peek in act ", ind[i][0])
                 exact_refer.append(True)
@@ -138,7 +143,7 @@ class LRU_KNN_GPU_PS(object):
         return external_values, internal_values, np.array(exact_refer)
 
     def act_value_ec(self, key, knn):
-        knn = min(self.curr_capacity//self.num_actions, knn)
+        knn = min(self.curr_capacity // self.num_actions, knn)
         key = np.array(key, copy=True).squeeze()
         if len(key.shape) == 1:
             key = key[np.newaxis, ...]
@@ -270,10 +275,21 @@ class LRU_KNN_GPU_PS(object):
             values.append(np.nanmax(self.external_value[ind, :]))
 
         negatives = [int((pos + sample_size // 2) % sample_size) for pos in positives]
-        z_target = [self.states[ind] for ind in indexes]
-        z_pos = [self.states[pos] for pos in positives]
-        z_neg = [self.states[neg] for neg in negatives]
-        return indexes, positives, negatives, z_target, z_pos, z_neg, values, actions
+        neighbours_index = self.knn_index(indexes)
+
+        neighbours_value = np.array(
+            [[np.nanmax(self.external_value[ind, :]) for ind in inds] for inds in neighbours_index])
+        neighbours_index = np.array(neighbours_index).reshape(-1)
+        # z_target = [self.states[ind] for ind in indexes]
+        # z_pos = [self.states[pos] for pos in positives]
+        # z_neg = [self.states[neg] for neg in negatives]
+        return indexes, positives, negatives, values, actions, neighbours_index, neighbours_value
+
+    def knn_index(self, index):
+        dist, ind = knn_cuda_fixmem.knn(self.address, self.states[index], min(self.knn, self.curr_capacity),
+                                        int(self.curr_capacity))
+        dist, ind = np.transpose(dist), np.transpose(ind - 1)
+        return ind
 
     def update(self, indexes, z_new):
         self.log("update in buffer", self.curr_capacity)

@@ -30,6 +30,7 @@ if __name__ == '__main__':
     ], outside_value=0.01)
 
     ec_agent = ECAgent(rp_model if args.rp else contrastive_model, exploration, env.observation_space.shape,
+    # ec_agent = ECAgent(represe ntation_model_mlp if args.vector_input else representation_model_cnn, exploration, env.observation_space.shape,
                        args.lr,
                        args.buffer_size, env.action_space.n, args.latent_dim, args.gamma, args.knn, tf_writer)
     agent = ec_agent
