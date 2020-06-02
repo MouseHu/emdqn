@@ -12,7 +12,7 @@ import logging
 
 
 class KBPSAgent(object):
-    def __init__(self, model_func, exploration_schedule, obs_shape, input_type, lr=1e-4, buffer_size=1000000,
+    def __init__(self, model_func, exploration_schedule, obs_shape, vector_input, lr=1e-4, buffer_size=1000000,
                  num_actions=6, latent_dim=32,
                  gamma=0.99, knn=10, eval_epsilon=0.01,
                  tf_writer=None, bp=True, debug=True):
@@ -34,6 +34,7 @@ class KBPSAgent(object):
         self.logger = logging.getLogger("ecbp")
         self.heuristic_exploration = True
         self.eval_epsilon = eval_epsilon
+        input_type = U.Float32Input if vector_input else U.Uint8Input
         self.hash_func, _, _ = build_train_dueling(
             make_obs_ph=lambda name: input_type(obs_shape, name=name),
             model_func=model_func,

@@ -15,7 +15,7 @@ from multiprocessing import Pipe
 
 
 class KBPSMPAgent(object):
-    def __init__(self, model_func, exploration_schedule, obs_shape, input_type, lr=1e-4, buffer_size=1000000,
+    def __init__(self, model_func, exploration_schedule, obs_shape, vector_input, lr=1e-4, buffer_size=1000000,
                  num_actions=6, latent_dim=32,
                  gamma=0.99, knn=10, eval_epsilon=0.01, queue_threshold=1e-7, batch_size=32,
                  tf_writer=None):
@@ -39,6 +39,7 @@ class KBPSMPAgent(object):
         self.batch_size = batch_size
         self.logger = logging.getLogger("ecbp")
         self.eval_epsilon = eval_epsilon
+        input_type = U.Float32Input if vector_input else U.Uint8Input
         self.hash_func, self.train_func, self.eval_func, self.norm_func, self.update_target_func = build_train_contrast_target(
             make_obs_ph=lambda name: input_type(obs_shape, name=name),
             model_func=model_func,
