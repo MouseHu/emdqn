@@ -1,6 +1,7 @@
 from baselines.ecbp.util import *
 from baselines.ecbp.agents.ecbp_agent import ECBPAgent
 from baselines.ecbp.agents.ec_agent import ECAgent
+from baselines.ecbp.agents.ec_debug_agent import ECDebugAgent
 from baselines.ecbp.agents.human_agent import HumanAgent
 from baselines.ecbp.agents.hybrid_agent import HybridAgent, HybridAgent2
 
@@ -29,10 +30,10 @@ if __name__ == '__main__':
         # (approximate_num_iters / 3, 0.01)
     ], outside_value=0.01)
 
-    ec_agent = ECAgent(rp_model if args.rp else contrastive_model, exploration, env.observation_space.shape,
+    ec_agent = ECDebugAgent(rp_model if args.rp else contrastive_model, exploration, env.observation_space.shape,
     # ec_agent = ECAgent(represe ntation_model_mlp if args.vector_input else representation_model_cnn, exploration, env.observation_space.shape,
-                       args.lr,
-                       args.buffer_size, env.action_space.n, args.latent_dim, args.gamma, args.knn, tf_writer)
+                       args.vector_input,args.lr,
+                       args.buffer_size, env.action_space.n, args.latent_dim, args.gamma, args.knn, tf_writer=tf_writer)
     agent = ec_agent
     value_summary = tf.Summary()
     # qec_summary = tf.Summary()

@@ -39,6 +39,7 @@ class KBPSMPAgent(object):
         self.batch_size = batch_size
         self.logger = logging.getLogger("ecbp")
         self.eval_epsilon = eval_epsilon
+        self.finds = [0, 0]
         input_type = U.Float32Input if vector_input else U.Uint8Input
         self.hash_func, self.train_func, self.eval_func, self.norm_func, self.update_target_func = build_train_contrast_target(
             make_obs_ph=lambda name: input_type(obs_shape, name=name),
@@ -70,15 +71,16 @@ class KBPSMPAgent(object):
             action = np.random.randint(0, self.num_actions)
             return action
         else:
-            finds = np.zeros((1,))
+            # finds = np.zeros((1,))
             extrinsic_qs, intrinsic_qs, find = self.send_and_receive(0, (np.array([self.z]), self.knn))
             extrinsic_qs, intrinsic_qs = np.array(extrinsic_qs), np.array(intrinsic_qs)
-            finds += sum(find)
+            # finds += sum(find)
             if is_train:
                 q = intrinsic_qs + extrinsic_qs
             else:
                 q = extrinsic_qs
-
+            self.finds[0] += sum(find)
+            self.finds[1] += self.num_actions
             q = np.squeeze(q)
             q_max = np.nanmax(q)
             if np.isnan(q_max):
@@ -86,7 +88,7 @@ class KBPSMPAgent(object):
             else:
                 max_action = np.where(q >= q_max - 1e-7)[0]
             self.log("action selection", max_action)
-            self.log("q", q, q_max, finds)
+            self.log("q", q, q_max)
             action_selected = np.random.randint(0, len(max_action))
             return max_action[action_selected]
 
@@ -95,10 +97,17 @@ class KBPSMPAgent(object):
         if train:
             self.ind = self.send_and_receive(2, (self.ind, action, reward, z_tp1, done))
         else:
-            self.ind = self.send_and_receive(1, np.array([z_tp1]))
+            self.ind= -1
+            # self.ind = self.send_and_receive(1, np.array([z_tp1]))
+
+            # self.ind = self.send_and_receive(1, (np.array([z_tp1]), None))
         if done:
+            find_summary = tf.Summary(
+                value=[tf.Summary.Value(tag="find rate", simple_value=self.finds[0] / (self.finds[1] + 1e-9))])
+            self.writer.add_summary(find_summary, global_step=self.steps)
+            self.finds = [0, 0]
             self.ind = -1
-            self.steps = 0
+            # self.steps = 0
 
     # def update_sequence(self):
     #     self.ec_buffer.update_sequence(self.sequence, self.debug)

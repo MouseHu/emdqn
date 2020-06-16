@@ -1,3 +1,7 @@
+from pyvirtualdisplay import Display
+
+display = Display(visible=1, size=(640, 480))
+display.start()
 from baselines.ecbp.util import *
 from baselines.ecbp.agents.ecbp_agent import ECBPAgent
 from baselines.ecbp.agents.ps_agent import PSAgent
@@ -11,7 +15,7 @@ from baselines.ecbp.agents.ec_agent import ECAgent
 from baselines.ecbp.agents.human_agent import HumanAgent
 from baselines.ecbp.agents.hybrid_agent import HybridAgent, HybridAgent2
 from baselines.ecbp.agents.graph.build_graph_contrast_target import *
-from pyvirtualdisplay import Display
+
 import sys
 import logging
 
@@ -21,9 +25,8 @@ sys.setrecursionlimit(30000)
 if __name__ == '__main__':
 
     args = parse_args()
-    if args.render:
-        display = Display(visible=1, size=(640, 480))
-        display.start()
+    # if args.render:
+
     env = create_env(args)
     # env = GIFRecorder(video_path=args.video_path + "/{}/".format(args.comment), record_video=True, env=env)
     print("obs shape", env.observation_space.shape)
@@ -57,14 +60,22 @@ if __name__ == '__main__':
     #                    args.buffer_size, env.action_space.n, args.latent_dim, args.gamma, args.knn, tf_writer)
     # agent = ec_agent
     # ps_agent = ECDebugAgent(rp_model if args.rp else contrastive_model,
-    # ps_agent = PSMPLearnTargetAgent(representation_model_mlp if args.vector_input else representation_model_cnn,
-    ps_agent = PSMPLearnTargetAgent(rp_model if args.rp else contrastive_model ,
+    ps_agent = PSMPLearnTargetAgent(representation_model_mlp if args.vector_input else representation_model_cnn,
+    # ps_agent = PSMPLearnTargetAgent(rp_model if args.rp else contrastive_model ,
                                     exploration,
                                     obs_shape, args.vector_input,
                                     args.lr,
                                     args.buffer_size, num_actions, args.latent_dim, args.gamma, args.knn,
                                     args.eval_epsilon, args.queue_threshold, args.batch_size,
                                     tf_writer)
+    # ps_agent = KBPSMPAgent(representation_model_mlp if args.vector_input else representation_model_cnn,
+    #                                 # ps_agent = PSMPLearnTargetAgent(rp_model if args.rp else contrastive_model ,
+    #                                 exploration,
+    #                                 obs_shape, args.vector_input,
+    #                                 args.lr,
+    #                                 args.buffer_size, num_actions, args.latent_dim, args.gamma, args.knn,
+    #                                 args.eval_epsilon, args.queue_threshold, args.batch_size,
+    #                                 tf_writer)
     # human_agent = HumanAgent(
     #     {"w": 3, "s": 4, "d": 1, "a": 0, "x": 2, "p": 5, "3": 3, "4": 4, "1": 1, "0": 0, "2": 2, "5": 5})
     # agent = HybridAgent2(ps_agent, human_agent, 30)
@@ -75,10 +86,12 @@ if __name__ == '__main__':
     value_summary.value.add(tag='steps')
     value_summary.value.add(tag='episodes')
 
+
     with U.make_session(4) as sess:
         # EMDQN
 
         U.initialize()
+        saver = tf.train.Saver()
         num_iters, eval_iters, num_episodes = 0, 0, 0
         non_discount_return, discount_return = [0.0], [0.0]
         # Load the model
@@ -110,6 +123,12 @@ if __name__ == '__main__':
             update_time += time.time() - cur_time
             cur_time = time.time()
 
+            if num_iters % 100000 == 0:
+                # print(tf.global_variables())
+                with tf.variable_scope("mfec", reuse=True):
+                    magic_num = tf.get_variable("magic")
+                    sess.run(magic_num.assign([142857]))
+                saver.save(sess, os.path.join(args.base_log_dir, args.log_dir, "./model/model{}_{}.ckpt".format(args.comment,num_iters)))
             if eval:
                 non_discount_return[-1] += rew
                 discount_return[-1] += rew * args.gamma ** (eval_iters - eval_start_steps)

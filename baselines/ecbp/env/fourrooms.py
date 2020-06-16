@@ -9,7 +9,7 @@ import random
 # resultList = random.sample(range(15, 300 + 15), 104)
 
 
-class Fourrooms(object):
+class Fourrooms(gym.Env):
     # metadata = {'render.modes':['human']}
     def __init__(self):
         layout = """\
@@ -28,11 +28,11 @@ class Fourrooms(object):
 1111111111111
 """
         self.occupancy = np.array([list(map(lambda c: 1 if c == '1' else 0, line)) for line in layout.splitlines()])
-
         # From any state the agent can perform one of four actions, up, down, left or right
         self.action_space = spaces.Discrete(4)
-        self.observation_space = spaces.Discrete(np.sum(self.occupancy == 0))
-
+        # self.observation_space = spaces.Discrete(np.sum(self.occupancy == 0))
+        self.space_capacity = int(np.sum(self.occupancy == 0))
+        self.observation_space = spaces.Box(np.zeros(self.space_capacity),np.ones(self.space_capacity))
         self.directions = [np.array((-1, 0)), np.array((1, 0)), np.array((0, -1)), np.array((0, 1))]
         # self.rng = np.random.RandomState(1234)
 
@@ -47,14 +47,20 @@ class Fourrooms(object):
         self.tocell = {v: k for k, v in self.tostate.items()}
 
         self.goal = 62
-
-        self.init_states = list(range(self.observation_space.n))
+        self.num_steps = 0
+        self.init_states = list(range(self.space_capacity))
         self.init_states.remove(self.goal)
         # random encode
         self.mapping = np.arange(int(np.sum(self.occupancy == 0)))
-        self.dict = np.zeros((self.observation_space.n, 3))
+        self.dict = np.zeros((self.space_capacity, 3))
         self.Row = np.shape(self.occupancy)[0]
         self.Col = np.shape(self.occupancy)[1]
+
+    def one_hot(self,x):
+        assert 0<= x < self.space_capacity
+        state = np.zeros(self.space_capacity)
+        state[x] = 1
+        return state
 
     def empty_around(self, cell):
         avail = []
@@ -66,9 +72,10 @@ class Fourrooms(object):
 
     def reset(self):
         # state = self.rng.choice(self.init_states)
+        self.num_steps = 0
         state = np.random.choice(self.init_states)
         self.currentcell = self.tocell[state]
-        return self.mapping[state]
+        return self.one_hot(self.mapping[state])
 
     def step(self, action):
         """
@@ -81,6 +88,7 @@ class Fourrooms(object):
 
         We consider a case in which rewards are zero on all state transitions.
         """
+        self.num_steps+=1
         nextcell = tuple(self.currentcell + self.directions[action])
 
         if not self.occupancy[nextcell]:
@@ -92,10 +100,10 @@ class Fourrooms(object):
                 self.currentcell = empty_cells[np.random.randint(len(empty_cells))]
 
         state = self.tostate[self.currentcell]
-        done = state == self.goal
-
+        done = state == self.goal or self.num_steps>100
+        reward = 1 if state == self.goal else 0
         # print(self.currentcell)
-        return self.mapping[state], done, None
+        return self.one_hot(self.mapping[state]), reward,done, None
 
     def get_dict(self):
         count = 0

@@ -1,5 +1,9 @@
+before running: build knn_cuda_fixmem
 
-
+```bash
+cd baselines/deepq/experiments/atari/knn_cuda/fix_mem
+make
+```
 example to run prioritized sweeping with representation learning:
 ```
 CUDA_VISIBLE_DEVICES=6 python train_prioritized_learning.py --env=vast --env_name=pong --log_dir=./tflogs/prior_pong --comment=ps_target_model --base_log_dir=/data/hh/ecbp --num-steps=3000000 --buffer-size=100000

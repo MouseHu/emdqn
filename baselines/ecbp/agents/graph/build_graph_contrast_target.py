@@ -92,7 +92,7 @@ def emb_dist(a, b):
     return tf.maximum(0., tf.reduce_sum(tf.squared_difference(a, b), axis=1))
 
 
-def contrastive_loss_fc(emb_cur, emb_next, emb_neq, margin=1, c_type='origin'):
+def contrastive_loss_fc(emb_cur, emb_next, emb_neq, margin=1, c_type='margin'):
     if c_type is None or c_type == 'origin':
         return tf.reduce_mean(
             tf.maximum(emb_dist(emb_cur, emb_next) - emb_dist(emb_cur, emb_neq) + margin, 0))
@@ -109,8 +109,8 @@ def contrastive_loss_fc(emb_cur, emb_next, emb_neq, margin=1, c_type='origin'):
 
 def build_train_contrast_target(make_obs_ph, model_func, num_actions, optimizer, grad_norm_clipping=None, gamma=1.0,
                                 scope="mfec",
-                                latent_dim=32, alpha=0.1, beta=0.1, theta=0.1, loss_type=["contrast"], knn=4,
-                                c_loss_type="sqmargin",
+                                latent_dim=32, alpha=0.1, beta=100000, theta=0.1, loss_type=["contrast"], knn=4,
+                                c_loss_type="margin", b=100,
                                 reuse=None):
     """Creates the train function:
 
@@ -161,6 +161,7 @@ def build_train_contrast_target(make_obs_ph, model_func, num_actions, optimizer,
         # tau = tf.placeholder(tf.float32, [1], name='tau')
         # momentum = tf.placeholder(tf.float32, [1], name='momentum')
 
+        magic_num = tf.get_variable(name='magic', shape=[1])
         obs_input_query = U.ensure_tf_input(make_obs_ph("obs_query"))
         obs_input_positive = U.ensure_tf_input(make_obs_ph("enc_obs_pos"))
         obs_input_negative = U.ensure_tf_input(make_obs_ph("enc_obs_neg"))
@@ -213,22 +214,30 @@ def build_train_contrast_target(make_obs_ph, model_func, num_actions, optimizer,
         z_tar = tf.reshape(z, [-1, latent_dim])
         if "contrast" in loss_type:
             z_neg = tf.reshape(z_neg, [-1, latent_dim])
-            contrast_loss = contrastive_loss_fc(z_tar, z_pos, z_neg, c_type=c_loss_type)
+            contrast_loss = contrastive_loss_fc(z_tar, z_pos, z_neg, c_type=c_loss_type) + contrastive_loss_fc(z_pos,
+                                                                                                               z_tar,
+                                                                                                               z_neg,
+                                                                                                               c_type=c_loss_type)
 
         z_neighbour = model_func(
             obs_input_neighbour.get(), num_actions,
             scope="model_func",
             reuse=True)
-        z_neighbour = tf.reshape(z_neighbour, [-1, latent_dim, knn])
-        neighbour_dist = tf.sqrt(
-            tf.reduce_sum(tf.square(tf.tile(tf.expand_dims(z_tar, -1), [1, 1, knn]) - z_neighbour), axis=1))
+        # z_neighbour = tf.reshape(z_neighbour, [-1,  latent_dim,knn])
+        z_neighbour = tf.reshape(z_neighbour, [-1, knn, latent_dim])
+        # z_neighbour = tf.transpose(z_neighbour, [0, 2, 1])
+        square_dist = tf.square(tf.tile(tf.expand_dims(z_tar, 1), [1, knn, 1]) - z_neighbour)
+        # print("info:",square_dist.shape,z_neighbour.shape)
+        neighbour_dist = tf.reduce_sum(square_dist, axis=2)
         # dist shape [None,knn]
-        neighbour_coeff = tf.math.softmax(-neighbour_dist)
+        neighbour_coeff = tf.math.softmax(-neighbour_dist / b, axis=1)
+        coeff_sum = tf.reduce_mean(tf.reduce_sum(neighbour_coeff, axis=1))
+        value_input_neighbour_mean = tf.reduce_mean(value_input_neighbour)
         # neighbour_coeff = neighbour_coeff / tf.reduce_sum(neighbour_coeff, axis=1)
-        fit_value = tf.reduce_sum(tf.multiply(neighbour_coeff, value_input_neighbour))
+        fit_value = tf.reduce_sum(tf.multiply(neighbour_coeff, value_input_neighbour), axis=1)
         fit_loss = tf.reduce_mean(tf.square(fit_value - value_input_query))
 
-        regularization_loss = -tf.reduce_mean(U.huber_loss(z_tar, 0.01))
+        regularization_loss = -tf.maximum(1., tf.reduce_mean(U.huber_loss(z_tar, 0.01)))
         regression_loss = tf.reduce_mean(
             tf.squared_difference(tf.norm(z_tar, axis=1), alpha * value_input_query)) + regularization_loss
 
@@ -284,6 +293,11 @@ def build_train_contrast_target(make_obs_ph, model_func, num_actions, optimizer,
         regression_loss_summary = tf.summary.scalar("regression loss", tf.reduce_mean(regression_loss))
         model_loss_summary = tf.summary.scalar("model loss", tf.reduce_mean(model_loss))
         fit_loss_summary = tf.summary.scalar("fit loss", tf.reduce_mean(fit_loss))
+        fit_value_summary = tf.summary.scalar("fit value", tf.reduce_mean(fit_value))
+        neighbour_value_summary = tf.summary.scalar("neighbour value", value_input_neighbour_mean)
+        coeff_summary = tf.summary.scalar("coeff sum", coeff_sum)
+        square_dist_summary = tf.summary.scalar("square_dist", tf.reduce_mean(square_dist))
+        z_neighbour_summary = tf.summary.scalar("z_neighbour_mean", tf.reduce_mean(z_neighbour))
         # fit_loss_summary = tf.summary.scalar("fit loss", tf.reduce_mean(fit_loss))
         # prediction_loss_summary = tf.summary.scalar("prediction loss", tf.reduce_mean(prediction_loss))
         total_loss_summary = tf.summary.scalar("total loss", tf.reduce_mean(total_loss))
@@ -300,6 +314,11 @@ def build_train_contrast_target(make_obs_ph, model_func, num_actions, optimizer,
                 summaries.append(positive_summary)
         if "fit" in loss_type:
             summaries.append(fit_loss_summary)
+            summaries.append(fit_value_summary)
+            summaries.append(neighbour_value_summary)
+            summaries.append(coeff_summary)
+            summaries.append(square_dist_summary)
+            summaries.append(z_neighbour_summary)
         summary = tf.summary.merge(summaries)
         outputs = [total_loss, summary]
         train = U.function(

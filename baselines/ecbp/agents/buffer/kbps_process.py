@@ -36,6 +36,7 @@ class KernelBasedPriorSweepProcess(Process):
         self.h = 0.01
         self.knn_dist = None
         self.knn_ind = None
+        self.sequence = []
 
     def log(self, *args, logtype='debug', sep=' '):
         getattr(self.logger, logtype)(sep.join(str(a) for a in args))
@@ -57,7 +58,8 @@ class KernelBasedPriorSweepProcess(Process):
         self.log("coeff", coeff.shape, coeff)
         self.ec_buffer.pseudo_count[index_t][action_t] = {}
         self.ec_buffer.pseudo_reward[index_t, action_t] = 0
-        self.ec_buffer.pseudo_prev[index_tp1] = {}
+        # self.ec_buffer.pseudo_prev[index_tp1] = {}
+        assert index_t in self.knn_ind, "self should be a neighbour of self"
         for i, s in enumerate(self.knn_ind):
 
             for sp in self.ec_buffer.next_id[s][action_t].keys():
@@ -70,11 +72,8 @@ class KernelBasedPriorSweepProcess(Process):
                     self.ec_buffer.pseudo_count[index_t][action_t][sp] += weighted_count
                 except KeyError:
                     self.ec_buffer.pseudo_count[index_t][action_t][sp] = weighted_count
-                try:
-                    self.ec_buffer.pseudo_prev[index_tp1][(index_t, action_t)] += weighted_count
-                except KeyError:
-                    self.ec_buffer.pseudo_prev[index_tp1][(index_t, action_t)] = weighted_count
 
+                self.ec_buffer.pseudo_prev[sp][(index_t, action_t)] = 1
                 self.ec_buffer.pseudo_reward[index_t, action_t] += reweight * coeff[i] * self.ec_buffer.reward[
                     s, action_t]
             if index_t == s:
@@ -89,10 +88,7 @@ class KernelBasedPriorSweepProcess(Process):
                     self.ec_buffer.pseudo_count[s][action_t][sp] += weighted_count
                 except KeyError:
                     self.ec_buffer.pseudo_count[s][action_t][sp] = weighted_count
-                try:
-                    self.ec_buffer.pseudo_prev[sp][(index_t, action_t)] += weighted_count
-                except KeyError:
-                    self.ec_buffer.pseudo_prev[sp][(index_t, action_t)] = weighted_count
+                self.ec_buffer.pseudo_prev[sp][(s, action_t)] = 1
                 self.ec_buffer.pseudo_reward[s, action_t] += reweight * coeff[i] * self.ec_buffer.reward[
                     index_t, action_t]
         if sa_count > self.sa_explore:
@@ -106,6 +102,7 @@ class KernelBasedPriorSweepProcess(Process):
         index_tp1, count_t = self.grow_model(sa_pair)
         # update current value
         index_t, action_t, reward_t, z_tp1, done_t = sa_pair
+        self.sequence.append(index_t)
         self.log("self neighbour", index_t, self.knn_ind)
         assert index_t in self.knn_ind, "self should be a neighbor of self"
         for index in self.knn_ind:
@@ -117,7 +114,8 @@ class KernelBasedPriorSweepProcess(Process):
                 self.ec_buffer.state_value_v[index_t] - np.nan_to_num(self.ec_buffer.state_value_u[index_t], copy=True))
             if priority > 1e-7:
                 self.pqueue.push(priority, index_t)
-
+        if done_t:
+            self.update_sequence()
         # self.iters_per_step = 0
         # self.update_enough.clear()
         self.conn.send((2, index_tp1))
@@ -148,10 +146,22 @@ class KernelBasedPriorSweepProcess(Process):
         if self.num_iters % 100000 == 0:
             self.log("backup count", self.num_iters)
 
+    def update_sequence(self):
+        # to make sure that the final signal can be fast propagate through the state,
+        # we need a sequence update like episodic control
+        for p, s in enumerate(self.sequence):
+            # self.pqueue.push(p + self.rmax, s)
+            self.ec_buffer.newly_added[s] = False
+        self.sequence = []
+
+        # self.ec_buffer.build_tree()
+
     def update_q_value(self, state, action):
 
         n_sa = sum(self.ec_buffer.pseudo_count[state][action].values())
-        r_smooth = self.ec_buffer.pseudo_reward[state, action] / n_sa
+        if n_sa < 1e-7:
+            return
+        r_smooth = np.nan_to_num(self.ec_buffer.pseudo_reward[state, action] / n_sa)
         # n_sasp = sum([coeff[i] * self.ec_buffer.next_id[s][action].get(state_tp1, 0) for i, s in enumerate(self.ind)])
         self.ec_buffer.external_value[state, action] = r_smooth
         for state_tp1 in self.ec_buffer.pseudo_count[state][action].keys():
@@ -161,6 +171,8 @@ class KernelBasedPriorSweepProcess(Process):
 
     def update_q_value_backup(self, state, action, state_tp1, delta_u):
         n_sa = sum(self.ec_buffer.pseudo_count[state][action].values())
+        if n_sa < 1e-7:
+            return
         n_sasp = self.ec_buffer.pseudo_count[state][action].get(state_tp1, 0)
         trans_p = n_sasp / n_sa
         assert 0 <= trans_p <= 1, "nsa{} nsap{} trans{}".format(n_sa, n_sasp, trans_p)
@@ -180,7 +192,7 @@ class KernelBasedPriorSweepProcess(Process):
 
     def retrieve_q_value(self, obj):
         z, knn = obj
-        extrinsic_qs, intrinsic_qs, find = self.ec_buffer.act_value(z, None, knn)
+        extrinsic_qs, intrinsic_qs, find = self.ec_buffer.act_value_ec(z, knn)
         self.conn.send((0, (extrinsic_qs, intrinsic_qs, find)))
 
     def peek_node(self, obj):

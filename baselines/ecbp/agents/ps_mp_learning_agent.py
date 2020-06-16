@@ -41,7 +41,7 @@ class PSMPLearnAgent(object):
         self.train_step = 4
         self.alpha = 1
         self.burnin = 2000
-        self.burnout = 300000
+        self.burnout = 1000000
         self.loss_type = ["contrast","regression","linear_model"]
         self.hash_func, self.train_func, self.eval_func, self.norm_func = build_train_contrast(
             make_obs_ph=lambda name: input_type(obs_shape, name=name),

@@ -13,8 +13,8 @@ from baselines import logger
 import copy
 import logging
 from multiprocessing import Pipe
-
-
+import cv2
+import matplotlib.pyplot as plt
 class PSMPLearnTargetAgent(object):
     def __init__(self, model_func, exploration_schedule, obs_shape, vector_input=True, lr=1e-4, buffer_size=1000000,
                  num_actions=6, latent_dim=32,
@@ -45,27 +45,17 @@ class PSMPLearnTargetAgent(object):
         self.burnin = 2000
         self.burnout = 1000000000
         self.update_target_freq = 10000
-        self.loss_type = ["contrast"]
+        self.loss_type = ["fit","contrast"]
         input_type = U.Float32Input if vector_input else U.Uint8Input
-        # self.hash_func, self.train_func, self.eval_func, self.norm_func, self.update_target_func = build_train_contrast_target(
-        #     make_obs_ph=lambda name: input_type(obs_shape, name=name),
-        #     model_func=model_func,
-        #     num_actions=num_actions,
-        #     optimizer=tf.train.AdamOptimizer(learning_rate=lr, epsilon=1e-4),
-        #     gamma=gamma,
-        #     grad_norm_clipping=10,
-        #     latent_dim=latent_dim,
-        #     loss_type=self.loss_type
-        # )
-        self.hash_func, _, _ = build_train_dueling(
-            make_obs_ph=lambda name: U.Uint8Input(obs_shape, name=name),
+        self.hash_func, self.train_func, self.eval_func, self.norm_func, self.update_target_func = build_train_contrast_target(
+            make_obs_ph=lambda name: input_type(obs_shape, name=name),
             model_func=model_func,
-            q_func=model,
-            imitate=False,
             num_actions=num_actions,
             optimizer=tf.train.AdamOptimizer(learning_rate=lr, epsilon=1e-4),
             gamma=gamma,
             grad_norm_clipping=10,
+            latent_dim=latent_dim,
+            loss_type=self.loss_type
         )
         self.finds = [0, 0]
 
@@ -105,7 +95,7 @@ class PSMPLearnTargetAgent(object):
         if "contrast" in self.loss_type:
             input += [obs_pos, obs_neg]
         if "regression" in self.loss_type:
-            input += [value_tar]
+            input += [np.nan_to_num(value_tar)]
         if "linear_model" in self.loss_type:
             input += [action_tar]
             if "contrast" not in self.loss_type:
@@ -160,7 +150,7 @@ class PSMPLearnTargetAgent(object):
             extrinsic_qs, intrinsic_qs, find = self.send_and_receive(0, (np.array([self.z]), None, self.knn))
             extrinsic_qs, intrinsic_qs = np.array(extrinsic_qs), np.array(intrinsic_qs)
             self.finds[0] += sum(find)
-            self.finds[1] += 1
+            self.finds[1] += self.num_actions
             if is_train:
                 q = extrinsic_qs
             else:
@@ -179,8 +169,8 @@ class PSMPLearnTargetAgent(object):
             return max_action[action_selected]
 
     def observe(self, action, reward, state_tp1, done, train=True):
-        # if self.steps <= 1:
-        #     self.update_target_func()
+        if self.steps <= 1:
+            self.update_target_func()
         z_tp1 = self.hash_func(np.array(state_tp1)[np.newaxis, ...])
         z_tp1 = np.array(z_tp1).reshape((self.latent_dim,))
         # z_tp1, h_tp1 = np.array(self.hash_func(np.array(state_tp1)[np.newaxis, ...])).reshape((self.latent_dim,))

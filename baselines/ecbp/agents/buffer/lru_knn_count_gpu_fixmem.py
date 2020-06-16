@@ -25,7 +25,7 @@ class LRU_KNN_COUNT_GPU_FIXMEM(object):
         self.buildnum = 256
         self.buildnum_max = 256
         self.bufpath = './buffer/%s' % self.env_name
-        self.threshold = 1e-7
+        self.threshold = 1e-5
         self.knn = knn
         # self.beta = beta
         self.address = knn_cuda_fixmem.allocate(capacity, z_dim, 32, knn)

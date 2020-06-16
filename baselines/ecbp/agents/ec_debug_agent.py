@@ -52,27 +52,27 @@ class ECDebugAgent(object):
         # self.ec_buffer = [
         #     LRU_KNN_COUNT_GPU_FIXMEM(self.buffer_size, self.latent_dim, "game", a, self.num_actions, self.knn) for a in
         #     range(self.num_actions)]
-        # input_type = U.Float32Input if vector_input else U.Uint8Input
-        # self.hash_func, self.train_func, self.eval_func, self.norm_func, self.update_target_func = build_train_contrast_target(
-        #     make_obs_ph=lambda name: input_type(obs_shape, name=name),
-        #     model_func=model_func,
-        #     num_actions=num_actions,
-        #     optimizer=tf.train.AdamOptimizer(learning_rate=lr, epsilon=1e-4),
-        #     gamma=gamma,
-        #     grad_norm_clipping=10,
-        #     latent_dim=latent_dim,
-        #     loss_type=self.loss_type
-        # )
-        self.hash_func, _, _ = build_train_dueling(
-            make_obs_ph=lambda name: U.Uint8Input(obs_shape, name=name),
+        input_type = U.Float32Input if vector_input else U.Uint8Input
+        self.hash_func, self.train_func, self.eval_func, self.norm_func, self.update_target_func = build_train_contrast_target(
+            make_obs_ph=lambda name: input_type(obs_shape, name=name),
             model_func=model_func,
-            q_func=model,
-            imitate=False,
             num_actions=num_actions,
             optimizer=tf.train.AdamOptimizer(learning_rate=lr, epsilon=1e-4),
             gamma=gamma,
             grad_norm_clipping=10,
+            latent_dim=latent_dim,
+            loss_type=self.loss_type
         )
+        # self.hash_func, _, _ = build_train_dueling(
+        #     make_obs_ph=lambda name: U.Uint8Input(obs_shape, name=name),
+        #     model_func=model_func,
+        #     q_func=model,
+        #     imitate=False,
+        #     num_actions=num_actions,
+        #     optimizer=tf.train.AdamOptimizer(learning_rate=lr, epsilon=1e-4),
+        #     gamma=gamma,
+        #     grad_norm_clipping=10,
+        # )
         self.ec_buffer.start()
 
     def log(self, *args, logtype='debug', sep=' '):

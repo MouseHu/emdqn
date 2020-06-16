@@ -33,26 +33,26 @@ class ECAgent(object):
         self.heuristic_exploration = False
         self.loss_type = ["contrast"]
         input_type = U.Uint8Input
-        # self.hash_func, _,_,_ = build_train_contrast_target(
-        #     make_obs_ph=lambda name: input_type(obs_shape, name=name),
-        #     model_func=model_func,
-        #     num_actions=num_actions,
-        #     optimizer=tf.train.AdamOptimizer(learning_rate=lr, epsilon=1e-4),
-        #     gamma=gamma,
-        #     grad_norm_clipping=10,
-        #     latent_dim=latent_dim,
-        #     loss_type=self.loss_type
-        # )
-        self.hash_func, _, _ = build_train_dueling(
-            make_obs_ph=lambda name: U.Uint8Input(obs_shape, name=name),
+        self.hash_func, _ , _ , _ , _ = build_train_contrast_target(
+            make_obs_ph=lambda name: input_type(obs_shape, name=name),
             model_func=model_func,
-            q_func=model,
-            imitate=False,
             num_actions=num_actions,
             optimizer=tf.train.AdamOptimizer(learning_rate=lr, epsilon=1e-4),
             gamma=gamma,
             grad_norm_clipping=10,
+            latent_dim=latent_dim,
+            loss_type=self.loss_type
         )
+        # self.hash_func, _, _ = build_train_dueling(
+        #     make_obs_ph=lambda name: U.Uint8Input(obs_shape, name=name),
+        #     model_func=model_func,
+        #     q_func=model,
+        #     imitate=False,
+        #     num_actions=num_actions,
+        #     optimizer=tf.train.AdamOptimizer(learning_rate=lr, epsilon=1e-4),
+        #     gamma=gamma,
+        #     grad_norm_clipping=10,
+        # )
         self.finds = [0, 0]
         self.eval_epsilon = 0.01
 

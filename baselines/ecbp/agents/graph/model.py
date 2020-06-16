@@ -139,11 +139,11 @@ def contrastive_model(img_in, num_actions, scope, reuse=False):
 
         z = layers.fully_connected(out, num_outputs=32, activation_fn=tf.nn.tanh)
         normed_z = z / tf.norm(z, axis=1, keepdims=True)
-        print("normed_z:", normed_z.shape)
-        with tf.variable_scope("action_value"):
-            v_h = layers.fully_connected(z, num_outputs=512, activation_fn=tf.nn.relu)
-            v = layers.fully_connected(v_h, num_outputs=1, activation_fn=None)
-        return normed_z, v
+        # print("normed_z:", normed_z.shape)
+        # with tf.variable_scope("action_value"):
+        #     v_h = layers.fully_connected(z, num_outputs=512, activation_fn=tf.nn.relu)
+        #     v = layers.fully_connected(v_h, num_outputs=1, activation_fn=None)
+        return normed_z
 
 
 def contrastive_model_general(img_in, num_actions, scope, reuse=False):
@@ -235,7 +235,7 @@ def representation_model_mlp(obs_in, num_actions, scope, reuse=False):
         # out = layers.flatten(out)
         #
         # out = layers.fully_connected(out, num_outputs=32, activation_fn=tf.nn.relu)
-        z = layers.fully_connected(out, num_outputs=6, activation_fn=None)
+        z = layers.fully_connected(out, num_outputs=32, activation_fn=None)
         # normed_z = z / tf.norm(z, axis=1, keepdims=True)
         # print("normed_z:", normed_z.shape)
         # with tf.variable_scope("action_value"):

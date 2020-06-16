@@ -6,7 +6,7 @@ import logging
 
 # each action -> a lru_knn buffer
 # alpha is for updating the internal reward i.e. count based reward
-class LRU_KNN_GPU_PS(object):
+class LRU_KNN_GPU_PS_SEPERATE(object):
     def __init__(self, capacity, z_dim, env_name, action, num_actions=6, knn=4, debug=True, gamma=0.99,
                  alpha=0.1,
                  beta=0.01):
@@ -18,6 +18,8 @@ class LRU_KNN_GPU_PS(object):
         self.num_actions = num_actions
         self.rmax = 100000
         self.states = np.empty((capacity, z_dim), dtype=np.float32)
+        self.address = np.full((capacity, num_actions), np.nan)
+        self.reversed_address = np.full((capacity, num_actions), np.nan)
         # self.hash_table = np.empty((capacity, z_dim), dtype=np.float32)
         # self.hashes = {}
         self.external_value = np.full((capacity, num_actions), np.nan)
@@ -36,7 +38,7 @@ class LRU_KNN_GPU_PS(object):
         self.count = np.zeros((capacity, num_actions))
         self.lru = np.zeros(capacity)
         # self.best_action = np.zeros((capacity, num_actions), dtype=np.int)
-        self.curr_capacity = 0
+        # self.gpu_capacity[0] = 0
         self.tm = 0.0
         self.threshold = 1e-7
         self.knn = knn
@@ -45,139 +47,29 @@ class LRU_KNN_GPU_PS(object):
         self.z_dim = z_dim
         # self.beta = beta
         batch_size = 32
-        self.address = knn_cuda_fixmem.allocate(capacity, z_dim, batch_size, knn * self.num_actions)
+        self.gpu_address = [knn_cuda_fixmem.allocate(capacity, z_dim, batch_size, knn+1) for _ in range(num_actions+1)]
+        self.gpu_capacity = [0 for _ in range(num_actions+1)]
         self.logger = logging.getLogger("ecbp")
 
     def log(self, *args, logtype='debug', sep=' '):
         getattr(self.logger, logtype)(sep.join(str(a) for a in args))
 
     def peek(self, key):
-        if self.curr_capacity == 0:
+        if self.gpu_capacity[0] == 0:
             return -1, [], []
-        # print(np.array(key).shape)
         key = np.array(key, copy=True).squeeze()
         key_norm= np.linalg.norm(key)
         if len(key.shape) == 1:
             key = key[np.newaxis, ...]
-        # self.log("begin knn",self.knn,self.curr_capacity,self.address,key.shape)
-        dist, ind = knn_cuda_fixmem.knn(self.address, key, min(self.knn, self.curr_capacity), int(self.curr_capacity))
-        # dist, ind = knn_cuda_fixmem.knn(self.address, key, 1, self.curr_capacity)
-        # self.log("finish knn")
+        dist, ind = knn_cuda_fixmem.knn(self.address, key, min(self.knn, self.gpu_capacity[0]), int(self.gpu_capacity[0]))
         dist, ind = np.transpose(dist), np.transpose(ind - 1)
         ind_n = ind[0][0]
-        self.log("key_norm in peek", key_norm)
         if dist[0][0] < self.threshold*key_norm:
-            # if ind_n != ind_hash:
-            #     self.log("hash not found", ind_hash)
             return ind_n, dist, ind
-        # if ind_n == -1:
-        self.log("pick exact failed. dist", dist[0][0], "z", key, "ind", ind_n)
-        # if -1 != ind_hash and dist[0][0] > self.threshold:
-        #     self.log("knn not found", ind_hash)
         return -1, dist, ind
 
     def act_value(self, key, knn):
-        knn = min(self.curr_capacity, knn)
-        internal_values = []
-        external_values = []
-        exact_refer = []
-        if knn < 1:
-            self.log("knn too small", logtype='info')
-            for i in range(len(key)):
-                internal_values.append(self.rmax * np.ones(self.num_actions))
-                external_values.append(np.zeros(self.num_actions))
-                exact_refer.append(False)
-            return external_values, internal_values, np.array(exact_refer)
-
-        key = np.array(key, copy=True).squeeze()
-        key_norm= np.linalg.norm(key,ord=2)
-        self.log("key_norm in act value",key_norm)
-        if len(key.shape) == 1:
-            key = key[np.newaxis, ...]
-        dist, ind = knn_cuda_fixmem.knn(self.address, key, knn, int(self.curr_capacity))
-        dist, ind = np.transpose(dist), np.transpose(ind - 1)
-        # print(dist.shape, ind.shape, len(key), key.shape)
-        # print("nearest dist", dist[0][0])
-        external_value = np.zeros(self.num_actions)
-        external_nan_mask = np.full((self.num_actions,), np.nan)
-        internal_value = self.rmax * np.ones(self.num_actions)
-        old_mask = np.array([[1 - self.newly_added[i] for i in query] for query in ind]).astype(np.bool)
-        ind_new, dist_new = ind[old_mask], dist[old_mask]
-        if len(dist_new) == 0:
-            self.log("no old node", logtype='info')
-            internal_values.append(self.rmax * np.ones(self.num_actions))
-            external_values.append(np.zeros(self.num_actions))
-            exact_refer.append(False)
-            return external_values, internal_values, np.array(exact_refer)
-        ind, dist = ind_new.reshape(1, -1), dist_new.reshape(1, -1)
-        for i in range(len(dist)):
-            self.log("compute coeff", dist, ind, len(dist), dist.shape)
-            coeff = -dist[i] / self.b
-            coeff = coeff - np.max(coeff)
-            coeff = np.exp(coeff)
-            coeff = coeff / np.sum(coeff)
-            if dist[i][0] < self.threshold*key_norm and not np.isnan(self.external_value[ind[i][0]]).all():
-
-                self.log("peek in act ", ind[i][0])
-                exact_refer.append(True)
-                external_value = copy.deepcopy(self.external_value[ind[i][0]])
-                internal_value = copy.deepcopy(self.internal_value[ind[i][0]])
-                # external_value[np.isnan(external_value)] = 0
-                self.lru[ind[i][0]] = self.tm
-                self.tm += 0.01
-            else:
-                exact_refer.append(False)
-                self.log("inexact refer", ind[i][0], dist[i][0])
-                for j, index in enumerate(ind[i]):
-                    tmp_external_value = copy.deepcopy(self.external_value[index, :])
-                    self.log("temp external value", self.external_value[index, :])
-                    tmp_external_value[np.isnan(tmp_external_value)] = 0
-                    external_nan_mask[(1 - np.isnan(tmp_external_value)).astype(np.bool)] = 0
-                    external_value += tmp_external_value * coeff[j]
-                    self.lru[index] = self.tm
-                    self.tm += 0.01
-                external_value += external_nan_mask
-            external_values.append(external_value)
-            internal_values.append(internal_value)
-
-        return external_values, internal_values, np.array(exact_refer)
-
-    def act_value_ec(self, key, knn):
-        knn = min(self.curr_capacity // self.num_actions, knn)
-        key = np.array(key, copy=True).squeeze()
-        if len(key.shape) == 1:
-            key = key[np.newaxis, ...]
-
-        if knn < 1:
-            self.log("knn too small", logtype='info')
-            return [np.zeros(self.num_actions)], [self.rmax * np.ones(self.num_actions)], np.array([False])
-
-        dist, ind = knn_cuda_fixmem.knn(self.address, key, knn * self.num_actions, int(self.curr_capacity))
-        dist, ind = np.transpose(dist), np.transpose(ind - 1)
-
-        external_values = self.external_value[ind[0]]
-        external_value = -self.rmax * np.ones((self.num_actions,))
-        internal_value = self.rmax * np.ones((self.num_actions,))
-        for a in range(self.num_actions):
-            # self.log("a")
-            external_values_column = external_values[~np.isnan(external_values[:, a]), a]
-            external_values_dist = dist[0][np.where(~np.isnan(external_values[:, a]))[0]]
-            if len(external_values_dist) == 0:
-                # not finding any value
-                continue
-            elif external_values_dist[0] < self.threshold:
-                # find
-                external_value[a] = external_values_column[0]
-                internal_value[a] = 0
-            else:
-                knn_a = min(len(external_values_dist), knn)
-                coeff = -external_values_dist[:knn_a] / self.b
-                coeff = coeff - np.max(coeff)
-                coeff = np.exp(coeff)
-                coeff = coeff / np.sum(coeff)
-                external_value[a] = np.dot(external_values_column[:knn_a], coeff)
-        self.log("return")
-        return [external_value], [internal_value], [0]
+        pass
 
     def add_edge(self, src, des, action, reward, done):
         if (src, action) not in self.prev_id[des]:
@@ -200,7 +92,7 @@ class LRU_KNN_GPU_PS(object):
 
     def add_node(self, key):
         # print(np.array(key).shape)
-        if self.curr_capacity >= self.capacity:
+        if self.gpu_capacity[0] >= self.capacity:
             # find the LRU entry
             old_index = int(np.argmin(self.lru))
             for action in range(self.num_actions):
@@ -223,15 +115,15 @@ class LRU_KNN_GPU_PS(object):
             return old_index, True
 
         else:
-            self.states[self.curr_capacity] = key
-            self.lru[self.curr_capacity] = self.tm
-            self.newly_added[self.curr_capacity] = True
-            self.count[self.curr_capacity] = 2
-            knn_cuda_fixmem.add(self.address, int(self.curr_capacity), np.array(key))
-            self.curr_capacity += 1
+            self.states[self.gpu_capacity[0]] = key
+            self.lru[self.gpu_capacity[0]] = self.tm
+            self.newly_added[self.gpu_capacity[0]] = True
+            self.count[self.gpu_capacity[0]] = 2
+            knn_cuda_fixmem.add(self.address, int(self.gpu_capacity[0]), np.array(key))
+            self.gpu_capacity[0] += 1
             self.tm += 0.01
 
-            return self.curr_capacity - 1, False
+            return self.gpu_capacity[0] - 1, False
 
     @staticmethod
     def distance(a, b):
@@ -247,7 +139,7 @@ class LRU_KNN_GPU_PS(object):
         self.external_value[state, action] += self.gamma * trans_p * delta_u
 
     def sample(self, sample_size):
-        sample_size = min(self.curr_capacity, sample_size)
+        sample_size = min(self.gpu_capacity[0], sample_size)
         if sample_size % 2 == 1:
             sample_size -= 1
         if sample_size < 2:
@@ -257,7 +149,7 @@ class LRU_KNN_GPU_PS(object):
         values = []
         actions = []
         while len(indexes) < sample_size:
-            ind = int(np.random.randint(0, self.curr_capacity, 1))
+            ind = int(np.random.randint(0, self.gpu_capacity[0], 1))
             if ind in indexes:
                 continue
             next_id_tmp = [[(a, ind_tp1) for ind_tp1 in self.next_id[ind][a].keys()] for a in range(self.num_actions)]
@@ -286,13 +178,14 @@ class LRU_KNN_GPU_PS(object):
         return indexes, positives, negatives, values, actions, neighbours_index, neighbours_value
 
     def knn_index(self, index):
-        dist, ind = knn_cuda_fixmem.knn(self.address, self.states[index], min(self.knn, self.curr_capacity),
-                                        int(self.curr_capacity))
+        dist, ind = knn_cuda_fixmem.knn(self.address, self.states[index], min(self.knn+1, self.gpu_capacity[0]),
+                                        int(self.gpu_capacity[0]))
         dist, ind = np.transpose(dist), np.transpose(ind - 1)
+        ind = ind[:,:-1]
         return ind
 
     def update(self, indexes, z_new):
-        self.log("update in buffer", self.curr_capacity)
+        self.log("update in buffer", self.gpu_capacity[0])
         assert len(indexes) == len(z_new), "{}{}".format(len(indexes), len(z_new))
         assert z_new.shape[1] == self.z_dim
         for i, ind in enumerate(indexes):

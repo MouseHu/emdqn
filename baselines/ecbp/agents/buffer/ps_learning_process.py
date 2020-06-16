@@ -73,6 +73,7 @@ class PSLearningProcess(Process):
         if done_t:
             #     delayed update, so that the value can be efficiently propagated
             if np.isnan(self.ec_buffer.external_value[index_t, action_t]):
+                # self.ec_buffer.notify(index_t, action_t)
                 self.ec_buffer.external_value[index_t, action_t] = reward_t
                 total_count_tp1 = sum(self.ec_buffer.next_id[index_t][action_t].values())
                 for s_tp1, count_tp1 in self.ec_buffer.next_id[index_t][action_t].items():
@@ -98,6 +99,7 @@ class PSLearningProcess(Process):
         self.log("ps update", index_t, action_t, count_t, reward_t + self.gamma * value_tp1,
                  self.ec_buffer.external_value[index_t, action_t])
         if np.isnan(self.ec_buffer.external_value[index_t, action_t]):
+            # self.ec_buffer.notify(index_t, action_t)
             self.ec_buffer.external_value[index_t, action_t] = 0
         # self.ec_buffer.external_value[index_t, action_t] = reward_t + self.gamma * value_tp1 * (1 - done_t)
         self.ec_buffer.external_value[index_t, action_t] += 1 / count_t * (
@@ -178,7 +180,7 @@ class PSLearningProcess(Process):
 
     def retrieve_q_value(self, obj):
         z, h, knn = obj
-        extrinsic_qs, intrinsic_qs, find = self.ec_buffer.act_value(z, knn)
+        extrinsic_qs, intrinsic_qs, find = self.ec_buffer.act_value_ec(z, knn)
         self.conn.send((0, (extrinsic_qs, intrinsic_qs, find)))
 
     def peek_node(self, obj):

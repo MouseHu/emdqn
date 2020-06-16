@@ -8,6 +8,7 @@ import datetime
 from baselines import logger
 from baselines import deepq
 from baselines.ecbp.env.fourrooms import Fourrooms
+from baselines.ecbp.env.tworooms import Tworooms
 from baselines.common.atari_wrappers_deprecated import FrameStack
 from baselines.common.atari_lib import MKPreprocessing
 from baselines.common.atari_lib import CropWrapper
@@ -157,8 +158,11 @@ def create_env(args):
         env = gym.make('MonsterKong-v0')
         env = ProcessFrame(env)
         env = MKPreprocessing(env, frame_skip=3, no_jump=True)
-    elif args.env == "GW" or args.env == "mk":
-        env = Fourrooms()
+    elif args.env == "GW" or args.env == "gw":
+        if args.env_name == "fourrooms":
+            env = Fourrooms()
+        else:
+            env = Tworooms()
     elif args.env == "doom" or args.env == "Doom":
         params = load_params(args.param_dir, args.env_name)
         env = DoomEnvironment(**params['env_params'])
