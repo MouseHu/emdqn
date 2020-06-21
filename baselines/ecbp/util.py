@@ -196,6 +196,9 @@ def create_env(args):
         game_version = 'v0'
         env = gym.make('{}-{}'.format(args.env_name, game_version))
         env = NoisyEnv(env, args.noise_dim, args.noise_var)
+    elif args.env == 'd4rl':
+        import d4rl
+        env = gym.make(args.env_name)
     else:
         raise NotImplementedError
     if args.seed > 0:
