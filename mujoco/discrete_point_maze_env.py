@@ -20,6 +20,7 @@ class DiscretePointMazeEnv(PointMazeEnv):
             top_down_view=False,
             manual_collision=False,
             goal=None,
+            disturb=True,
             *args,
             **kwargs):
         super(DiscretePointMazeEnv, self).__init__(maze_id,
@@ -38,43 +39,39 @@ class DiscretePointMazeEnv(PointMazeEnv):
 
         self.actual_action_space = self.action_space
         self.pseudo_action_space = gym.spaces.Discrete(4)
+        self.disturb = disturb
 
     def reset(self):
         obs = super(DiscretePointMazeEnv, self).reset()
-        try:
-            obs = obs[0]['observation']
-        except IndexError:
-            obs = obs
-        try:
-            obs2 = obs['observation']
-        except IndexError:
-            obs2 = obs
+        # try:
+        #     obs = obs[0]['observation']
+        # except IndexError:
+        #     obs = obs
+        # try:
+        #     obs2 = obs['observation']
+        # except IndexError:
+        #     obs2 = obs
         # print("in reset", obs2)
-        return obs2
+        return obs
 
     def step(self, action):
         lb, ub = self.actual_action_space.low, self.actual_action_space.high
+        disturb = np.random.randn(1) if self.disturb else 0
         if type(action) is not int:
             actual_action = np.array([0, 0])
         elif action == 0:
-            actual_action = np.array([0, ub[1] * 1])
+            actual_action = np.array([0, ub[1] * (1+0.1*disturb)])
         elif action == 1:
-            actual_action = np.array([0, lb[1] * 1])
+            actual_action = np.array([0, lb[1] * (1+0.1*disturb)])
         elif action == 2:
-            actual_action = np.array([ub[0] * 0.5, 0])
+            actual_action = np.array([ub[0] * 0.5*(1+0.1*disturb), 0])
         elif action == 3:
-            actual_action = np.array([lb[0] * 0.5, 0])
+            actual_action = np.array([lb[0] * 0.5*(1+0.1*disturb), 0])
         else:
             actual_action = np.array([0, 0])
 
         obs, reward, done, info = super(DiscretePointMazeEnv, self).step(actual_action)
-        try:
-            obs = obs[0]['observation']
-        except IndexError:
-            obs = obs
-        try:
-            obs2 = obs['observation']
-        except IndexError:
-            obs2 = obs
+
         # print("in step", obs)
-        return obs2, reward, done, info
+        # print("in step", obs2)
+        return obs, reward, done, info

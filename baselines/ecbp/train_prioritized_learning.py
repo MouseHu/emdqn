@@ -60,22 +60,22 @@ if __name__ == '__main__':
     #                    args.buffer_size, env.action_space.n, args.latent_dim, args.gamma, args.knn, tf_writer)
     # agent = ec_agent
     # ps_agent = ECDebugAgent(rp_model if args.rp else contrastive_model,
-    ps_agent = PSMPLearnTargetAgent(representation_model_mlp if args.vector_input else representation_model_cnn,
-    # ps_agent = PSMPLearnTargetAgent(rp_model if args.rp else contrastive_model ,
-                                    exploration,
-                                    obs_shape, args.vector_input,
-                                    args.lr,
-                                    args.buffer_size, num_actions, args.latent_dim, args.gamma, args.knn,
-                                    args.eval_epsilon, args.queue_threshold, args.batch_size,
-                                    tf_writer)
-    # ps_agent = KBPSMPAgent(representation_model_mlp if args.vector_input else representation_model_cnn,
-    #                                 # ps_agent = PSMPLearnTargetAgent(rp_model if args.rp else contrastive_model ,
+    # ps_agent = PSMPLearnTargetAgent(representation_model_mlp if args.vector_input else representation_model_cnn,
+    # # ps_agent = PSMPLearnTargetAgent(rp_model if args.rp else contrastive_model ,
     #                                 exploration,
     #                                 obs_shape, args.vector_input,
     #                                 args.lr,
     #                                 args.buffer_size, num_actions, args.latent_dim, args.gamma, args.knn,
     #                                 args.eval_epsilon, args.queue_threshold, args.batch_size,
     #                                 tf_writer)
+    ps_agent = KBPSMPAgent(representation_model_mlp if args.vector_input else representation_model_cnn,
+                                    # ps_agent = PSMPLearnTargetAgent(rp_model if args.rp else contrastive_model ,
+                                    exploration,
+                                    obs_shape, args.vector_input,
+                                    args.lr,
+                                    args.buffer_size, num_actions, args.latent_dim, args.gamma, args.knn,
+                                    args.eval_epsilon, args.queue_threshold, args.batch_size,
+                                    tf_writer)
     # human_agent = HumanAgent(
     #     {"w": 3, "s": 4, "d": 1, "a": 0, "x": 2, "p": 5, "3": 3, "4": 4, "1": 1, "0": 0, "2": 2, "5": 5})
     # agent = HybridAgent2(ps_agent, human_agent, 30)
@@ -99,6 +99,7 @@ if __name__ == '__main__':
         eval_start_steps = 0
         steps_per_iter, iteration_time_est = RunningAvg(0.999, 1), RunningAvg(0.999, 1)
         obs = env.reset()
+        print("in main",obs)
         print_flag = True
         # Main training loop
         train_time, act_time, env_time, update_time, cur_time = 0, 0, 0, 0, time.time()

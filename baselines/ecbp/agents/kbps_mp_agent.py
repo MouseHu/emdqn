@@ -63,6 +63,7 @@ class KBPSMPAgent(object):
 
     def act(self, obs, is_train=True):
         self.obs = obs
+        # print("in agent",obs)
         self.z = np.array(self.hash_func(np.array(obs))).reshape((self.latent_dim,))
         self.ind = self.send_and_receive(1, np.array([self.z]))
         self.steps += 1

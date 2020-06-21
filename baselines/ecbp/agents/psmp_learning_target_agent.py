@@ -15,6 +15,8 @@ import logging
 from multiprocessing import Pipe
 import cv2
 import matplotlib.pyplot as plt
+
+
 class PSMPLearnTargetAgent(object):
     def __init__(self, model_func, exploration_schedule, obs_shape, vector_input=True, lr=1e-4, buffer_size=1000000,
                  num_actions=6, latent_dim=32,
@@ -39,12 +41,13 @@ class PSMPLearnTargetAgent(object):
         self.batch_size = batch_size
         self.rmax = 100000
         self.logger = logging.getLogger("ecbp")
+        self.log("psmp learning agent here")
         self.eval_epsilon = eval_epsilon
-        self.train_step = 4
+        self.train_step = 400000000
         self.alpha = 1
         self.burnin = 2000
         self.burnout = 1000000000
-        self.update_target_freq = 10000
+        self.update_target_freq = 100000000
         self.loss_type = ["fit","contrast"]
         input_type = U.Float32Input if vector_input else U.Uint8Input
         self.hash_func, self.train_func, self.eval_func, self.norm_func, self.update_target_func = build_train_contrast_target(

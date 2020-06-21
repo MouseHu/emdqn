@@ -32,8 +32,8 @@ class KernelBasedPriorSweepProcess(Process):
         self.hash_dim = hash_dim
         # self.queue_lock = Lock()
         self.pqueue = HashPQueue()
-        self.b = 0.01
-        self.h = 0.01
+        self.b = 0.0001
+        self.h = 0.0001
         self.knn_dist = None
         self.knn_ind = None
         self.sequence = []
@@ -74,7 +74,7 @@ class KernelBasedPriorSweepProcess(Process):
                     self.ec_buffer.pseudo_count[index_t][action_t][sp] = weighted_count
 
                 self.ec_buffer.pseudo_prev[sp][(index_t, action_t)] = 1
-                self.ec_buffer.pseudo_reward[index_t, action_t] += reweight * coeff[i] * self.ec_buffer.reward[
+                self.ec_buffer.pseudo_reward[index_t, action_t] += weighted_count * self.ec_buffer.reward[
                     s, action_t]
             if index_t == s:
                 continue
@@ -85,7 +85,7 @@ class KernelBasedPriorSweepProcess(Process):
                 reweight = np.exp(-np.array(dist).squeeze() / self.h)
                 weighted_count = reweight * coeff[i] * self.ec_buffer.next_id[index_t][action_t][sp]
                 try:
-                    self.ec_buffer.pseudo_count[s][action_t][sp] += weighted_count
+                    self.ec_buffer.pseudo_count[s][action_t][sp] += reweight * coeff[i]
                 except KeyError:
                     self.ec_buffer.pseudo_count[s][action_t][sp] = weighted_count
                 self.ec_buffer.pseudo_prev[sp][(s, action_t)] = 1
@@ -94,6 +94,28 @@ class KernelBasedPriorSweepProcess(Process):
         if sa_count > self.sa_explore:
             self.ec_buffer.internal_value[index_t, action_t] = 0
         return index_tp1, sa_count
+    # def grow_model(self, sa_pair):  # grow model
+    #     index_t, action_t, reward_t, z_tp1, done_t = sa_pair
+    #     index_tp1, _, _ = self.ec_buffer.peek(z_tp1)
+    #     # self.log("finish peek")
+    #     if index_tp1 < 0:
+    #         index_tp1, override = self.ec_buffer.add_node(z_tp1)
+    #
+    #         self.log("add node", index_tp1, logtype='debug')
+    #         if override:
+    #             self.pqueue.remove(index_tp1)
+    #
+    #     # if (index_t, action_t) not in self.ec_buffer.prev_id[index_tp1]:
+    #     self.log("add edge", index_t, action_t, index_tp1, logtype='debug')
+    #     sa_count = self.ec_buffer.add_edge(index_t, index_tp1, action_t, reward_t, done_t)
+    #     self.ec_buffer.pseudo_count[index_t][action_t] = self.ec_buffer.pseudo_count[index_t][action_t]
+    #     self.ec_buffer.pseudo_count[index_t][action_t] = self.ec_buffer.next_id[index_t][action_t]
+    #     # self.pseudo_count = [[{} for __ in range(num_actions)] for _ in range(capacity)]
+    #     self.ec_buffer.pseudo_reward[index_t,action_t] = reward_t*sum(self.ec_buffer.pseudo_count[index_t][action_t].values())
+    #     self.ec_buffer.pseudo_prev[index_tp1] = {x:1 for x in self.ec_buffer.prev_id[index_tp1]}
+    #     # if sa_coun t > self.sa_explore:
+    #     #     self.ec_buffer.internal_value[index_t, action_t] = 0
+    #     return index_tp1, sa_count
 
     def observe(self, sa_pair):
         # self.update_enough.wait(timeout=1000)
