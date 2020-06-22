@@ -48,7 +48,12 @@ if __name__ == '__main__':
     try:
         num_actions = env.action_space.n
     except AttributeError:
-        num_actions = env.unwrapped.pseudo_action_space.n
+        if hasattr(env, 'pseudo_action_space'):
+            num_actions = env.pseudo_action_space.n
+        elif hasattr(env, 'unwrapped'):
+            num_actions = env.unwrapped.pseudo_action_space.n
+        else:
+            raise TypeError("Environment has invalid action space!")
     obs_shape = env.observation_space.shape
     if obs_shape is None or obs_shape == (None,):
         obs_shape = env.unwrapped.observation_space.shape
@@ -80,7 +85,7 @@ if __name__ == '__main__':
     value_summary.value.add(tag='discount_reward_mean')
     value_summary.value.add(tag='non_discount_reward_mean')
     value_summary.value.add(tag='steps')
-    value_summary.value.add(tag='episodes')
+    value_summary.value.add(tag='eval_episodes')
 
 
     with U.make_session(4) as sess:
@@ -88,105 +93,158 @@ if __name__ == '__main__':
 
         U.initialize()
         saver = tf.train.Saver()
-        num_iters, eval_iters, num_episodes = 0, 0, 0
+        num_iters, eval_iters, num_eval_episodes = 0, 0, 0
         non_discount_return, discount_return = [0.0], [0.0]
         # Load the model
         start_time, start_steps = time.time(), 0
         eval_start_steps = 0
-        steps_per_iter, iteration_time_est = RunningAvg(0.999, 1), RunningAvg(0.999, 1)
-        obs = env.reset()
-        print("in main", obs)
+        # steps_per_iter, iteration_time_est = RunningAvg(0.999, 1), RunningAvg(0.999, 1)
+        env_obs = env.reset()
+        print("in main", env_obs)
         print_flag = True
         # Main training loop
         train_time, act_time, env_time, update_time, cur_time = 0, 0, 0, 0, time.time()
-        while True:
-            eval = (num_episodes % 10 == 9)
+
+        dataset = env.get_dataset()
+
+        for obs, action, reward, next_obs, done in zip(dataset['observations'], dataset['actions'], dataset['rewards'],
+                                                       dataset['next_observations'], dataset['terminals']):
+            eval = (num_iters % 1000 == 999)
+
             if not eval:
                 num_iters += 1
             else:
                 eval_iters += 1
-            # Take action and store transition in the replay buffer.
-            action = agent.act(np.array(obs)[None], is_train=not eval)
-            act_time += time.time() - cur_time
-            cur_time = time.time()
 
-            new_obs, rew, done, info = env.step(action)
-            if args.render:
-                env.render()
-            env_time += time.time() - cur_time
-            cur_time = time.time()
-
-            agent.observe(action, rew, new_obs, done, train=not eval)
-            update_time += time.time() - cur_time
-            cur_time = time.time()
-
-            if num_iters % 100000 == 0:
-                # print(tf.global_variables())
-                # with tf.variable_scope("mfec", reuse=True):
-                #     magic_num = tf.get_variable("magic")
-                #     sess.run(magic_num.assign([142857]))
-                saver.save(sess, os.path.join(args.base_log_dir, args.log_dir, "./model/model{}_{}.ckpt".format(args.comment,num_iters)))
+            # fake interaction
             if eval:
-                non_discount_return[-1] += rew
-                discount_return[-1] += rew * args.gamma ** (eval_iters - eval_start_steps)
-            obs = new_obs
-            if done:
-                num_episodes += 1
-                obs = env.reset()
-                if eval:
+                env_action = agent.act(np.array(env_obs)[None], is_train=False)
+                env_obs, env_reward, env_done, _ = env.step(env_action)
+
+                if env_done:
+                    num_eval_episodes += 1
+                    env_obs = env.reset()
                     non_discount_return.append(0.0)
                     discount_return.append(0.0)
 
-            train_time += time.time() - cur_time
-            cur_time = time.time()
+                    return_len = min(len(non_discount_return) - 1, 1)
+                    steps_left = args.num_steps - num_iters
+                    completion = np.round(num_iters / args.num_steps, 2)
 
-            if start_time is not None:
-                steps_per_iter.update(1)
-                iteration_time_est.update(time.time() - start_time)
-            start_time = time.time()
-
-            if num_iters > args.num_steps:
-                agent.finish()
-                break
-
-            if done:
-                return_len = min(len(non_discount_return) - 1, 1)
-                steps_left = args.num_steps - num_iters
-                completion = np.round(num_iters / args.num_steps, 2)
-
-                logger.record_tabular("% completion", completion)
-                logger.record_tabular("iters", num_iters)
-                logger.record_tabular("reward", np.mean(non_discount_return[-return_len - 1:-1]))
-                logger.record_tabular("discount reward", np.mean(discount_return[-return_len - 1:-1]))
-                logger.record_tabular("num episode", num_episodes)
-                logger.record_tabular("update time", update_time)
-                logger.record_tabular("train time", train_time)
-                logger.record_tabular("act_time", act_time)
-                logger.record_tabular("env_time", env_time)
-                logger.record_tabular("eval", num_episodes % 2 == 0)
-
-                if eval:
                     total_steps = num_iters - args.end_training
                     value_summary.value[0].simple_value = np.mean(discount_return[-return_len - 1:-1])
                     value_summary.value[1].simple_value = np.mean(non_discount_return[-return_len - 1:-1])
                     value_summary.value[2].simple_value = num_iters
-                    value_summary.value[3].simple_value = num_episodes
+                    value_summary.value[3].simple_value = num_eval_episodes
                     tf_writer.add_summary(value_summary, global_step=total_steps)
 
-                logger.record_tabular("exploration", exploration.value(num_iters))
-                fps_estimate = (float(steps_per_iter) / (float(iteration_time_est) + 1e-6)
-                                if steps_per_iter._value is not None else 1 / (float(iteration_time_est) + 1e-6))
-                logger.dump_tabular()
-                logger.log()
-                logger.log("ETA: " + pretty_eta(int(steps_left / fps_estimate)))
-                logger.log()
-
-                eval = (num_episodes % 10 == 9)
-                if not eval:
-                    start_steps = num_iters
-                else:
                     eval_start_steps = eval_iters
-                total_steps = num_iters - args.end_training
+            else:
+                agent.act(np.array(obs)[None], is_train=True)
 
-            # tf_writer.add_summary(qec_summary, global_step=total_steps)
-            cur_time = time.time()
+            # observe offline data
+            if not eval:
+                agent.observe(action, reward, next_obs, done, train=True)
+
+            # log
+            if num_iters % 100000 == 0:
+                saver.save(sess, os.path.join(args.base_log_dir, args.log_dir, "./model/model{}_{}.ckpt".format(args.comment, num_iters)))
+            if eval:
+                non_discount_return[-1] += env_reward
+                discount_return[-1] += env_reward * args.gamma ** (eval_iters - eval_start_steps)
+
+        agent.finish()
+
+
+
+        # while True:
+        #     eval = (num_episodes % 10 == 9)
+        #     if not eval:
+        #         num_iters += 1
+        #     else:
+        #         eval_iters += 1
+        #     # Take action and store transition in the replay buffer.
+        #     action = agent.act(np.array(obs)[None], is_train=not eval)
+        #     act_time += time.time() - cur_time
+        #     cur_time = time.time()
+        #
+        #     new_obs, rew, done, info = env.step(action)
+        #     if args.render:
+        #         env.render()
+        #     env_time += time.time() - cur_time
+        #     cur_time = time.time()
+        #
+        #     agent.observe(action, rew, new_obs, done, train=not eval)
+        #     update_time += time.time() - cur_time
+        #     cur_time = time.time()
+        #
+        #     if num_iters % 100000 == 0:
+        #         # print(tf.global_variables())
+        #         # with tf.variable_scope("mfec", reuse=True):
+        #         #     magic_num = tf.get_variable("magic")
+        #         #     sess.run(magic_num.assign([142857]))
+        #         saver.save(sess, os.path.join(args.base_log_dir, args.log_dir, "./model/model{}_{}.ckpt".format(args.comment,num_iters)))
+        #     if eval:
+        #         non_discount_return[-1] += rew
+        #         discount_return[-1] += rew * args.gamma ** (eval_iters - eval_start_steps)
+        #     obs = new_obs
+        #     if done:
+        #         num_episodes += 1
+        #         obs = env.reset()
+        #         if eval:
+        #             non_discount_return.append(0.0)
+        #             discount_return.append(0.0)
+        #
+        #     train_time += time.time() - cur_time
+        #     cur_time = time.time()
+        #
+        #     # if start_time is not None:
+        #     #     steps_per_iter.update(1)
+        #     #     iteration_time_est.update(time.time() - start_time)
+        #     start_time = time.time()
+        #
+        #     if num_iters > args.num_steps:
+        #         agent.finish()
+        #         break
+        #
+        #     if done:
+        #         return_len = min(len(non_discount_return) - 1, 1)
+        #         steps_left = args.num_steps - num_iters
+        #         completion = np.round(num_iters / args.num_steps, 2)
+        #
+        #         # logger.record_tabular("% completion", completion)
+        #         # logger.record_tabular("iters", num_iters)
+        #         # logger.record_tabular("reward", np.mean(non_discount_return[-return_len - 1:-1]))
+        #         # logger.record_tabular("discount reward", np.mean(discount_return[-return_len - 1:-1]))
+        #         # logger.record_tabular("num episode", num_episodes)
+        #         # logger.record_tabular("update time", update_time)
+        #         # logger.record_tabular("train time", train_time)
+        #         # logger.record_tabular("act_time", act_time)
+        #         # logger.record_tabular("env_time", env_time)
+        #         # logger.record_tabular("eval", num_episodes % 2 == 0)
+        #
+        #         if eval:
+        #             total_steps = num_iters - args.end_training
+        #             value_summary.value[0].simple_value = np.mean(discount_return[-return_len - 1:-1])
+        #             value_summary.value[1].simple_value = np.mean(non_discount_return[-return_len - 1:-1])
+        #             value_summary.value[2].simple_value = num_iters
+        #             value_summary.value[3].simple_value = num_episodes
+        #             tf_writer.add_summary(value_summary, global_step=total_steps)
+        #
+        #         # logger.record_tabular("exploration", exploration.value(num_iters))
+        #         # fps_estimate = (float(steps_per_iter) / (float(iteration_time_est) + 1e-6)
+        #         #                 if steps_per_iter._value is not None else 1 / (float(iteration_time_est) + 1e-6))
+        #         # logger.dump_tabular()
+        #         # logger.log()
+        #         # logger.log("ETA: " + pretty_eta(int(steps_left / fps_estimate)))
+        #         # logger.log()
+        #
+        #         eval = (num_episodes % 10 == 9)
+        #         if not eval:
+        #             start_steps = num_iters
+        #         else:
+        #             eval_start_steps = eval_iters
+        #         total_steps = num_iters - args.end_training
+        #
+        #     # tf_writer.add_summary(qec_summary, global_step=total_steps)
+        #     cur_time = time.time()
