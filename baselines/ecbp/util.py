@@ -9,13 +9,13 @@ from baselines import logger
 from baselines import deepq
 from baselines.ecbp.env.d4rl_wrapper import D4RLDiscreteMazeEnvWrapper
 from baselines.ecbp.env.fourrooms import Fourrooms
-from baselines.ecbp.env.tworooms import Tworooms
+# from baselines.ecbp.env.tworooms import Tworooms
 from baselines.common.atari_wrappers_deprecated import FrameStack
 from baselines.common.atari_lib import MKPreprocessing
 from baselines.common.atari_lib import CropWrapper
 from baselines.common.atari_lib import NoisyEnv
 from baselines.common.atari_lib import DoomPreprocessing
-from baselines.doom.environment import DoomEnvironment
+# from baselines.doom.environment import DoomEnvironment
 from baselines.common.misc_util import (
     boolean_flag,
     pickle_load,

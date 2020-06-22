@@ -1,5 +1,5 @@
 # from pyvirtualdisplay import Display
-#
+
 # display = Display(visible=1, size=(640, 480))
 # display.start()
 from baselines.ecbp.util import *
@@ -95,7 +95,7 @@ if __name__ == '__main__':
         eval_start_steps = 0
         steps_per_iter, iteration_time_est = RunningAvg(0.999, 1), RunningAvg(0.999, 1)
         obs = env.reset()
-        print("in main",obs)
+        print("in main", obs)
         print_flag = True
         # Main training loop
         train_time, act_time, env_time, update_time, cur_time = 0, 0, 0, 0, time.time()
@@ -122,9 +122,9 @@ if __name__ == '__main__':
 
             if num_iters % 100000 == 0:
                 # print(tf.global_variables())
-                with tf.variable_scope("mfec", reuse=True):
-                    magic_num = tf.get_variable("magic")
-                    sess.run(magic_num.assign([142857]))
+                # with tf.variable_scope("mfec", reuse=True):
+                #     magic_num = tf.get_variable("magic")
+                #     sess.run(magic_num.assign([142857]))
                 saver.save(sess, os.path.join(args.base_log_dir, args.log_dir, "./model/model{}_{}.ckpt".format(args.comment,num_iters)))
             if eval:
                 non_discount_return[-1] += rew
