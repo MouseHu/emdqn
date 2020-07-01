@@ -2,6 +2,7 @@ import numpy as np
 from sklearn.neighbors import BallTree, KDTree
 import os
 from baselines.ecbp.agents.buffer.lru_knn_gpu_ps import LRU_KNN_GPU_PS
+from baselines.ecbp.agents.buffer.lru_knn_gpu_ps_density import LRU_KNN_GPU_PS_DENSITY
 from baselines.ecbp.agents.buffer.lru_knn_ps import LRU_KNN_PS
 import gc
 from baselines.deepq.experiments.atari.knn_cuda_fixmem import knn as knn_cuda_fixmem
@@ -45,17 +46,18 @@ class PSLearningProcess(Process):
 
     def grow_model(self, sa_pair):  # grow model
         index_t, action_t, reward_t, z_tp1, h_tp1, done_t = sa_pair
-        index_tp1, _, _ = self.ec_buffer.peek(z_tp1)
+        index_tp1, knn_dist, knn_ind = self.ec_buffer.peek(z_tp1)
         # self.log("finish peek")
         if index_tp1 < 0:
+            # index_tp1, override = self.ec_buffer.add_node(z_tp1,knn_dist,knn_ind)
             index_tp1, override = self.ec_buffer.add_node(z_tp1)
 
-            self.log("add node", index_tp1, logtype='debug')
+            # self.log("add node", index_tp1, logtype='debug')
             if override:
                 self.pqueue.remove(index_tp1)
 
         # if (index_t, action_t) not in self.ec_buffer.prev_id[index_tp1]:
-        self.log("add edge", index_t, action_t, index_tp1, logtype='debug')
+        # self.log("add edge", index_t, action_t, index_tp1, logtype='debug')
         sa_count = self.ec_buffer.add_edge(index_t, index_tp1, action_t, reward_t, done_t)
 
         # if sa_coun t > self.sa_explore:
@@ -64,7 +66,7 @@ class PSLearningProcess(Process):
 
     def observe(self, sa_pair):
         # self.update_enough.wait(timeout=1000)
-        self.log("ps pqueue len", len(self.pqueue))
+        # self.log("ps pqueue len", len(self.pqueue))
         # grow model
         index_tp1, count_t = self.grow_model(sa_pair)
         # update current value
@@ -142,9 +144,9 @@ class PSLearningProcess(Process):
             delta_u = self.ec_buffer.state_value_v[index] - np.nan_to_num(self.ec_buffer.state_value_u[index],
                                                                           copy=True)
             self.ec_buffer.state_value_u[index] = self.ec_buffer.state_value_v[index]
-            self.log("backup node", index, "priority", priority, "new value",
-                     self.ec_buffer.state_value_v[index],
-                     "delta", delta_u)
+            # self.log("backup node", index, "priority", priority, "new value",
+            #          self.ec_buffer.state_value_v[index],
+            #          "delta", delta_u)
             # self.log("pqueue len",len(self.pqueue))
             for sa_pair in self.ec_buffer.prev_id[index]:
                 state_tm1, action_tm1 = sa_pair
@@ -158,10 +160,10 @@ class PSLearningProcess(Process):
                     self.pqueue.push(priority_tm1, state_tm1)
             if priority < self.rmax and not self.update_enough:
                 self.update_enough = True
-                self.log("update enough with low priority", self.update_enough, priority)
+                # self.log("update enough with low priority", self.update_enough, priority)
         if len(self.pqueue) == 0 and not self.update_enough:
             self.update_enough = True
-            self.log("update enough", self.update_enough)
+            # self.log("update enough", self.update_enough)
         if self.num_iters % 100000 == 0:
             self.log("backup count", self.num_iters)
 
@@ -185,8 +187,9 @@ class PSLearningProcess(Process):
 
     def peek_node(self, obj):
         z, h = obj
-        ind, _, _ = self.ec_buffer.peek(z)
+        ind, knn_dist, knn_ind = self.ec_buffer.peek(z)
         if ind == -1:
+            # ind, _ = self.ec_buffer.add_node(z,knn_dist,knn_ind)
             ind, _ = self.ec_buffer.add_node(z)
             self.log("add node for first ob ", ind)
             self.first_ob_index = ind
@@ -204,7 +207,7 @@ class PSLearningProcess(Process):
             # self.iters_per_step = 0
 
             msg, obj = self.conn.recv()
-            self.log("receiving message", msg)
+            # self.log("receiving message", msg)
             if msg == 0:
                 self.retrieve_q_value(obj)
             elif msg == 1:

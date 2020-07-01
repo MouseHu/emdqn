@@ -6,7 +6,7 @@ import logging
 
 # each action -> a lru_knn buffer
 # alpha is for updating the internal reward i.e. count based reward
-class LRU_KNN_GPU_PS(object):
+class LRU_KNN_GPU_PS_DENSITY(object):
     def __init__(self, capacity, z_dim, env_name, action, num_actions=6, knn=4, debug=True, gamma=0.99,
                  alpha=0.1,
                  beta=0.01):
@@ -36,6 +36,10 @@ class LRU_KNN_GPU_PS(object):
         self.debug = debug
         self.count = np.zeros((capacity, num_actions))
         self.lru = np.zeros(capacity)
+        self.density = self.rmax * np.ones(capacity)
+        self.neighbour_forward = [[] for _ in range(capacity)]
+        self.neighbour_dist_forward = [[] for _ in range(capacity)]
+        self.neighbour_backward = [[] for _ in range(capacity)]
         # self.best_action = np.zeros((capacity, num_actions), dtype=np.int)
         self.curr_capacity = 0
         self.tm = 0.0
@@ -46,7 +50,7 @@ class LRU_KNN_GPU_PS(object):
         self.z_dim = z_dim
         # self.beta = beta
         batch_size = 32
-        self.address = knn_cuda_fixmem.allocate(capacity, z_dim, batch_size, knn * self.num_actions)
+        self.address = knn_cuda_fixmem.allocate(capacity, z_dim, batch_size, knn * max(self.num_actions, 4))
         self.logger = logging.getLogger("ecbp")
 
     def log(self, *args, logtype='debug', sep=' '):
@@ -61,7 +65,8 @@ class LRU_KNN_GPU_PS(object):
         if len(key.shape) == 1:
             key = key[np.newaxis, ...]
         # self.log("begin knn",self.knn,self.curr_capacity,self.address,key.shape)
-        dist, ind = knn_cuda_fixmem.knn(self.address, key, min(self.knn, self.curr_capacity), int(self.curr_capacity))
+        dist, ind = knn_cuda_fixmem.knn(self.address, key, min(self.knn * 4, self.curr_capacity),
+                                        int(self.curr_capacity))
         # dist, ind = knn_cuda_fixmem.knn(self.address, key, 1, self.curr_capacity)
         # self.log("finish knn")
         dist, ind = np.transpose(dist), np.transpose(ind - 1)
@@ -129,7 +134,7 @@ class LRU_KNN_GPU_PS(object):
             else:
                 exact_refer.append(False)
                 self.log("inexact refer", ind[i][0], dist[i][0])
-                self.log("coeff",coeff)
+                self.log("coeff", coeff)
                 for j, index in enumerate(ind[i]):
                     tmp_external_value = copy.deepcopy(self.external_value[index, :])
                     self.log("temp external value", self.external_value[index, :])
@@ -182,9 +187,9 @@ class LRU_KNN_GPU_PS(object):
                 coeff = coeff / np.sum(coeff)
                 external_value[a] = np.dot(external_values_column[:knn_a], coeff)
                 self.log("knn_a", knn_a, a)
-                self.log("column",external_values_column[:knn_a])
-                self.log("dist",external_values_dist[:knn_a])
-                self.log("coeff",coeff)
+                self.log("column", external_values_column[:knn_a])
+                self.log("dist", external_values_dist[:knn_a])
+                self.log("coeff", coeff)
 
         return [external_value], [internal_value], exact_refer
 
@@ -207,40 +212,106 @@ class LRU_KNN_GPU_PS(object):
         self.done[src, action] = done
         return sum(self.next_id[src][action].values())
 
-    def add_node(self, key):
+    def compute_density(self, ind):
+        knn_count = min(self.knn, len(self.neighbour_dist_forward[ind]))
+        knn_dist = np.sort(self.neighbour_dist_forward[ind])[:knn_count]
+        if knn_count < 1:
+            self.density[ind] = self.rmax
+        else:
+            self.density[ind] = np.average(knn_dist)
+
+    def add_node(self, key, knn_dist, knn_ind):
+        knn_dist = np.array(knn_dist).reshape(-1).tolist()
+        knn_ind = np.array(knn_ind).reshape(-1).tolist()
         # print(np.array(key).shape)
         if self.curr_capacity >= self.capacity:
             # find the LRU entry
-            old_index = int(np.argmin(self.lru))
+            old_index = int(np.argmin(self.density))
+            # deal with model
             for action in range(self.num_actions):
                 for successor in self.next_id[old_index][action].keys():
                     for s, a in self.prev_id[successor]:
                         if s == old_index:
                             self.prev_id[successor].remove((s, a))
                 self.next_id[old_index][action] = dict()
-            self.states[old_index] = key
+            self.prev_id[old_index] = []
+            # deal with neighbour
+            for neighbour in self.neighbour_backward[old_index]:
+                place = np.where(np.array(self.neighbour_forward[neighbour]) == old_index)[0]
+                if len(place) == 0:
+                    print("backward", old_index, self.neighbour_backward[old_index])
+                    print("forward", neighbour, self.neighbour_forward[neighbour])
+                    raise SyntaxError
+                assert len(place) == 1,place
+                place = int(place)
+                self.neighbour_forward[neighbour].pop(place)
+                self.neighbour_dist_forward[neighbour].pop(place)
+                # print(self.neighbour_dist_forward[neighbour])
+                self.compute_density(neighbour)
+            for neighbour in self.neighbour_forward[old_index]:
+                    self.neighbour_backward[neighbour].remove(old_index)
+
+            # clean buffer and then treat it like a new one
+            self.density[old_index] = self.rmax
             self.external_value[old_index] = np.full((self.num_actions,), np.nan)
             self.internal_value[old_index] = self.rmax * np.ones(self.num_actions)
             self.state_value_u[old_index] = np.nan
             self.state_value_v[old_index] = np.nan
-            self.lru[old_index] = self.tm
-            self.count[old_index] = 2
-            self.prev_id[old_index] = []
-            knn_cuda_fixmem.add(self.address, int(old_index), np.array(key))
-            self.tm += 0.01
-            self.newly_added[old_index] = True
-            return old_index, True
+            self.neighbour_forward[old_index] = []
+            self.neighbour_dist_forward[old_index] = []
+            self.neighbour_backward[old_index] = []
+            new_index = old_index
 
         else:
-            self.states[self.curr_capacity] = key
-            self.lru[self.curr_capacity] = self.tm
-            self.newly_added[self.curr_capacity] = True
-            self.count[self.curr_capacity] = 2
-            knn_cuda_fixmem.add(self.address, int(self.curr_capacity), np.array(key))
+            new_index = self.curr_capacity
             self.curr_capacity += 1
-            self.tm += 0.01
 
-            return self.curr_capacity - 1, False
+        if new_index in knn_ind:
+            place = np.where(np.array(new_index)==knn_ind)[0]
+            assert len(place) == 1, place
+            place = int(place)
+            knn_ind.pop(place)
+            knn_dist.pop(place)
+        self.neighbour_forward[new_index] = knn_ind
+        self.neighbour_dist_forward[new_index] = knn_dist
+        # print(self.neighbour_dist_forward[new_index])
+        self.compute_density(new_index)
+        # print(knn_ind,knn_dist)
+        # for x in zip([knn_ind, knn_dist]):
+        #     print(x)
+        for ind, dist in zip(knn_ind, knn_dist):
+            self.neighbour_backward[ind].append(new_index)
+            if len(self.neighbour_forward[ind]) < self.knn * 4 and new_index not in self.neighbour_forward[ind]:
+                self.neighbour_forward[ind].append(new_index)
+                self.neighbour_dist_forward[ind].append(dist)
+                # print(self.neighbour_dist_forward[ind])
+                self.compute_density(ind)
+                self.neighbour_backward[new_index].append(ind)
+            else:
+                dist_max = np.max(self.neighbour_dist_forward[ind])
+                ind_max = int(np.argmax(self.neighbour_dist_forward[ind]))
+
+                if dist_max > dist:
+                    ind_tmp = self.neighbour_forward[ind][ind_max]
+                    try:
+                        self.neighbour_backward[ind_tmp].remove(ind)
+                    except ValueError:
+                        print(ind_tmp,self.neighbour_forward[ind])
+                        print(ind,self.neighbour_backward[ind_tmp])
+                        raise ValueError
+                    self.neighbour_forward[ind][ind_max] = new_index
+                    self.neighbour_dist_forward[ind][ind_max] = dist
+                    # print(self.neighbour_dist_forward[ind])
+                    self.compute_density(ind)
+                    self.neighbour_backward[new_index].append(ind)
+
+        self.states[new_index] = key
+        self.lru[new_index] = self.tm
+        self.newly_added[new_index] = True
+        self.count[new_index] = 2
+        knn_cuda_fixmem.add(self.address, int(new_index), np.array(key))
+        self.tm += 0.01
+        return new_index, False
 
     @staticmethod
     def distance(a, b):

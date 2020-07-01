@@ -109,7 +109,7 @@ def contrastive_loss_fc(emb_cur, emb_next, emb_neq, margin=1, c_type='margin'):
 
 def build_train_contrast_target(make_obs_ph, model_func, num_actions, optimizer, grad_norm_clipping=None, gamma=1.0,
                                 scope="mfec",
-                                latent_dim=32, alpha=0.1, beta=100000, theta=0.1, loss_type=["contrast"], knn=4,
+                                latent_dim=32, alpha=0.1, beta=1e9, theta=0.1, loss_type=["contrast"], knn=4,
                                 c_loss_type="margin", b=100,
                                 reuse=None):
     """Creates the train function:
@@ -235,7 +235,8 @@ def build_train_contrast_target(make_obs_ph, model_func, num_actions, optimizer,
         value_input_neighbour_mean = tf.reduce_mean(value_input_neighbour)
         # neighbour_coeff = neighbour_coeff / tf.reduce_sum(neighbour_coeff, axis=1)
         fit_value = tf.reduce_sum(tf.multiply(neighbour_coeff, value_input_neighbour), axis=1)
-        fit_loss = tf.reduce_mean(tf.square(fit_value - value_input_query))
+        # fit_loss = tf.reduce_mean(tf.square(fit_value - value_input_query))
+        fit_loss = tf.reduce_mean(tf.abs(fit_value - value_input_query))
 
         regularization_loss = -tf.maximum(1., tf.reduce_mean(U.huber_loss(z_tar, 0.01)))
         regression_loss = tf.reduce_mean(

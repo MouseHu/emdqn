@@ -43,13 +43,14 @@ class PSMPLearnTargetAgent(object):
         self.logger = logging.getLogger("ecbp")
         self.log("psmp learning agent here")
         self.eval_epsilon = eval_epsilon
-        self.train_step = 400000000
+        self.train_step = 4
         self.alpha = 1
         self.burnin = 2000
-        self.burnout = 1000000000
-        self.update_target_freq = 100000000
+        self.burnout = 1000000
+        self.update_target_freq = 10000
         self.loss_type = ["fit","contrast"]
         input_type = U.Float32Input if vector_input else U.Uint8Input
+        # input_type = U.Uint8Input
         self.hash_func, self.train_func, self.eval_func, self.norm_func, self.update_target_func = build_train_contrast_target(
             make_obs_ph=lambda name: input_type(obs_shape, name=name),
             model_func=model_func,
@@ -77,7 +78,7 @@ class PSMPLearnTargetAgent(object):
 
     def train(self):
         # sample
-        self.log("begin training")
+        # self.log("begin training")
         samples = self.send_and_receive(4, self.batch_size)
         index_tar, index_pos, index_neg, value_tar, action_tar, neighbours_index, neighbours_value = samples
         obs_tar = [self.replay_buffer[ind] for ind in index_tar]
@@ -109,7 +110,7 @@ class PSMPLearnTargetAgent(object):
                 input += [np.nan_to_num(value_tar)]
         func = self.train_func if self.steps < self.burnout else self.eval_func
         loss, summary = func(*input)
-        self.log("finish training")
+        # self.log("finish training")
         self.writer.add_summary(summary, global_step=self.steps)
 
     def update_target(self):
@@ -133,6 +134,8 @@ class PSMPLearnTargetAgent(object):
             self.steps += 1
             if self.steps % 100 == 0:
                 self.log("steps", self.steps)
+        else:
+            self.log("obs",obs)
         # print(obs)
         self.obs = obs
         # print("in act",obs)
@@ -169,7 +172,7 @@ class PSMPLearnTargetAgent(object):
             self.log("action selection", max_action)
             self.log("q", q, q_max)
             action_selected = np.random.randint(0, len(max_action))
-            return max_action[action_selected]
+            return int(max_action[action_selected])
 
     def observe(self, action, reward, state_tp1, done, train=True):
         if self.steps <= 1:

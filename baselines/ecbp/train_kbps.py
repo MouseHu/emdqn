@@ -1,6 +1,6 @@
 from pyvirtualdisplay import Display
 
-display = Display(visible=1, size=(960, 640))
+display = Display(visible=1, size=(640, 480))
 display.start()
 from baselines.ecbp.util import *
 from baselines.ecbp.agents.ecbp_agent import ECBPAgent
@@ -55,40 +55,37 @@ if __name__ == '__main__':
     if type(obs_shape) is int:
         obs_shape = (obs_shape,)
 
-    # ec_agent = ECAgent(representation_model_mlp if args.vector_input else representation_model_cnn, exploration, env.observation_space.shape,
+    # ec_agent = ECAgent(rp_model if args.rp else contrastive_model, exploration, env.observation_space.shape,
     #                    args.lr,
-    #                    args.buffer_size, num_actions, args.latent_dim, args.gamma, args.knn, tf_writer)
+    #                    args.buffer_size, env.action_space.n, args.latent_dim, args.gamma, args.knn, tf_writer)
     # agent = ec_agent
     # ps_agent = ECDebugAgent(rp_model if args.rp else contrastive_model,
-    ps_agent = PSMPLearnTargetAgent(representation_model_mlp if args.vector_input else representation_model_cnn,
-    # ps_agent = PSMPLearnTargetAgent(rp_model if args.rp else contrastive_model ,
-                                    exploration,
-                                    obs_shape, args.vector_input,
-                                    args.lr,
-                                    args.buffer_size, num_actions, args.latent_dim, args.gamma, args.knn,
-                                    args.eval_epsilon, args.queue_threshold, args.batch_size,
-                                    tf_writer)
-    # ps_agent = KBPSMPAgent(representation_model_mlp if args.vector_input else representation_model_cnn,
-    #                                 # ps_agent = PSMPLearnTargetAgent(rp_model if args.rp else contrastive_model ,
+    # ps_agent = PSMPLearnTargetAgent(representation_model_mlp if args.vector_input else representation_model_cnn,
+    # # ps_agent = PSMPLearnTargetAgent(rp_model if args.rp else contrastive_model ,
     #                                 exploration,
     #                                 obs_shape, args.vector_input,
     #                                 args.lr,
     #                                 args.buffer_size, num_actions, args.latent_dim, args.gamma, args.knn,
     #                                 args.eval_epsilon, args.queue_threshold, args.batch_size,
     #                                 tf_writer)
+    ps_agent = KBPSMPAgent(representation_model_mlp if args.vector_input else representation_model_cnn,
+                                    # ps_agent = PSMPLearnTargetAgent(rp_model if args.rp else contrastive_model ,
+                                    exploration,
+                                    obs_shape, args.vector_input,
+                                    args.lr,
+                                    args.buffer_size, num_actions, args.latent_dim, args.gamma, args.knn,
+                                    args.eval_epsilon, args.queue_threshold, args.batch_size,
+                                    tf_writer)
     # human_agent = HumanAgent(
     #     {"w": 3, "s": 4, "d": 1, "a": 0, "x": 2, "p": 5, "3": 3, "4": 4, "1": 1, "0": 0, "2": 2, "5": 5})
     # agent = HybridAgent2(ps_agent, human_agent, 30)
     agent = ps_agent
     value_summary = tf.Summary()
     value_summary.value.add(tag='discount_reward_mean')
-
     value_summary.value.add(tag='non_discount_reward_mean')
-
     value_summary.value.add(tag='steps')
     value_summary.value.add(tag='episodes')
-    value_summary.value.add(tag='discount_reward_mean_training')
-    value_summary.value.add(tag='non_discount_reward_mean_training')
+
 
     with U.make_session(4) as sess:
         # EMDQN
@@ -97,7 +94,6 @@ if __name__ == '__main__':
         saver = tf.train.Saver()
         num_iters, eval_iters, num_episodes = 0, 0, 0
         non_discount_return, discount_return = [0.0], [0.0]
-        non_discount_return_eval, discount_return_eval = [0.0], [0.0]
         # Load the model
         start_time, start_steps = time.time(), 0
         eval_start_steps = 0
@@ -128,26 +124,20 @@ if __name__ == '__main__':
             update_time += time.time() - cur_time
             cur_time = time.time()
 
-            if num_iters % 100000000 == 0:
+            if num_iters % 100000 == 0:
                 # print(tf.global_variables())
                 with tf.variable_scope("mfec", reuse=True):
                     magic_num = tf.get_variable("magic")
                     sess.run(magic_num.assign([142857]))
                 saver.save(sess, os.path.join(args.base_log_dir, args.log_dir, "./model/model{}_{}.ckpt".format(args.comment,num_iters)))
             if eval:
-                non_discount_return_eval[-1] += rew
-                discount_return_eval[-1] += rew * args.gamma ** (eval_iters - start_steps)
-            else:
                 non_discount_return[-1] += rew
-                discount_return[-1] += rew * args.gamma ** (num_iters - start_steps)
+                discount_return[-1] += rew * args.gamma ** (eval_iters - eval_start_steps)
             obs = new_obs
             if done:
                 num_episodes += 1
                 obs = env.reset()
                 if eval:
-                    non_discount_return_eval.append(0.0)
-                    discount_return_eval.append(0.0)
-                else:
                     non_discount_return.append(0.0)
                     discount_return.append(0.0)
 
@@ -165,16 +155,13 @@ if __name__ == '__main__':
 
             if done:
                 return_len = min(len(non_discount_return) - 1, 1)
-                return_len_eval = min(len(non_discount_return_eval) - 1, 1)
                 steps_left = args.num_steps - num_iters
                 completion = np.round(num_iters / args.num_steps, 2)
 
                 logger.record_tabular("% completion", completion)
                 logger.record_tabular("iters", num_iters)
-                logger.record_tabular("return", np.mean(non_discount_return[-return_len - 1:-1]))
-                logger.record_tabular("return_eval", np.mean(non_discount_return_eval[-return_len_eval - 1:-1]))
-                logger.record_tabular("discount return", np.mean(discount_return[-return_len - 1:-1]))
-                logger.record_tabular("discount return_eval", np.mean(discount_return_eval[-return_len_eval - 1:-1]))
+                logger.record_tabular("reward", np.mean(non_discount_return[-return_len - 1:-1]))
+                logger.record_tabular("discount reward", np.mean(discount_return[-return_len - 1:-1]))
                 logger.record_tabular("num episode", num_episodes)
                 logger.record_tabular("update time", update_time)
                 logger.record_tabular("train time", train_time)
@@ -184,15 +171,8 @@ if __name__ == '__main__':
 
                 if eval:
                     total_steps = num_iters - args.end_training
-                    value_summary.value[0].simple_value = np.mean(discount_return_eval[-return_len_eval - 1:-1])
-                    value_summary.value[1].simple_value = np.mean(non_discount_return_eval[-return_len_eval - 1:-1])
-                    value_summary.value[2].simple_value = num_iters
-                    value_summary.value[3].simple_value = num_episodes
-                    tf_writer.add_summary(value_summary, global_step=total_steps)
-                else:
-                    total_steps = num_iters - args.end_training
-                    value_summary.value[4].simple_value = np.mean(discount_return[-return_len - 1:-1])
-                    value_summary.value[5].simple_value = np.mean(non_discount_return[-return_len - 1:-1])
+                    value_summary.value[0].simple_value = np.mean(discount_return[-return_len - 1:-1])
+                    value_summary.value[1].simple_value = np.mean(non_discount_return[-return_len - 1:-1])
                     value_summary.value[2].simple_value = num_iters
                     value_summary.value[3].simple_value = num_episodes
                     tf_writer.add_summary(value_summary, global_step=total_steps)
@@ -209,7 +189,7 @@ if __name__ == '__main__':
                 if not eval:
                     start_steps = num_iters
                 else:
-                    start_steps = eval_iters
+                    eval_start_steps = eval_iters
                 total_steps = num_iters - args.end_training
 
             # tf_writer.add_summary(qec_summary, global_step=total_steps)

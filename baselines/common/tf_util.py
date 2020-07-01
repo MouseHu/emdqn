@@ -188,7 +188,7 @@ class Float32Input(PlacholderTfInput):
 
         super().__init__(tf.placeholder(tf.float32, [None] + list(shape), name=name))
         self._shape = shape
-        self._output = super().get()
+        self._output = tf.cast(super().get(), tf.float32)
 
     def get(self):
         return self._output

@@ -33,7 +33,7 @@ class ECAgent(object):
         self.heuristic_exploration = False
         self.loss_type = ["contrast"]
         input_type = U.Uint8Input
-        self.hash_func, _ , _ , _ , _ = build_train_contrast_target(
+        self.hash_func, _, _, _, _ = build_train_contrast_target(
             make_obs_ph=lambda name: input_type(obs_shape, name=name),
             model_func=model_func,
             num_actions=num_actions,
@@ -54,12 +54,14 @@ class ECAgent(object):
         #     grad_norm_clipping=10,
         # )
         self.finds = [0, 0]
-        self.eval_epsilon = 0.01
+        self.eval_epsilon = 0.02
 
     def log(self, *args, logtype='debug', sep=' '):
         getattr(self.logger, logtype)(sep.join(str(a) for a in args))
 
     def act(self, obs, is_train=True):
+        # if not is_train:
+        self.log("obs",obs)
         self.obs = obs
         z = np.array(self.hash_func(np.array(obs))).reshape((self.latent_dim,))
         self.z = z
@@ -69,6 +71,10 @@ class ECAgent(object):
         if np.random.random() < epsilon:
             action = np.random.randint(0, self.num_actions)
             # print("random")
+            if not is_train:
+                self.log("eval", "random",action)
+            else:
+                self.log("training", "random",action)
             return action
         else:
             extrinsic_qs = np.zeros((self.num_actions, 1))
@@ -87,9 +93,11 @@ class ECAgent(object):
             q_max = np.max(q)
             max_action = np.where(q >= q_max - 1e-7)[0]
             action_selected = np.random.randint(0, len(max_action))
-            self.log("capacity", [self.ec_buffer[a].curr_capacity for a in range(self.num_actions)])
-            self.log("ec_action_selection", finds, q, q_max, max_action)
-            return max_action[action_selected]
+            if not is_train:
+                self.log("eval")
+                self.log("capacity", [self.ec_buffer[a].curr_capacity for a in range(self.num_actions)])
+                self.log("ec_action_selection", finds, q, q_max, max_action)
+            return int(max_action[action_selected])
 
     def observe(self, action, reward, state_tp1, done, train=True):
         if not train:
@@ -115,7 +123,7 @@ class ECAgent(object):
             exRtn.append(exrtd)
             inRtn.append(inrtd)
             q, inrtd = self.ec_buffer[a].peek(z, exrtd, inrtd, True)
-            self.log("update sequence", q, exrtd, a)
+            # self.log("update sequence", q, exrtd, a)
             if q is None:  # new action
                 self.ec_buffer[a].add(z, exrtd, inrtd)
                 inrtd = self.ec_buffer[a].beta

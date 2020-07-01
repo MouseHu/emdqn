@@ -20,7 +20,7 @@ class DiscretePointMazeEnv(PointMazeEnv):
             top_down_view=False,
             manual_collision=False,
             goal=None,
-            disturb=True,
+            disturb=False,
             *args,
             **kwargs):
         super(DiscretePointMazeEnv, self).__init__(maze_id,
@@ -39,7 +39,7 @@ class DiscretePointMazeEnv(PointMazeEnv):
 
         self.actual_action_space = self.action_space
         self.pseudo_action_space = gym.spaces.Discrete(4)
-        self.disturb = disturb
+        self.disturb = False
 
     def reset(self):
         obs = super(DiscretePointMazeEnv, self).reset()

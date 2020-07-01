@@ -1,5 +1,6 @@
 import numpy as np
 from baselines.deepq.experiments.atari.knn_cuda_fixmem import knn as knn_cuda_fixmem
+import logging
 
 
 # each action -> a lru_knn buffer
@@ -25,8 +26,9 @@ class LRU_KNN_COUNT_GPU_FIXMEM(object):
         self.buildnum = 256
         self.buildnum_max = 256
         self.bufpath = './buffer/%s' % self.env_name
-        self.threshold = 1e-5
+        self.threshold = 1e-8
         self.knn = knn
+        self.logger = logging.getLogger("ecbp")
         # self.beta = beta
         self.address = knn_cuda_fixmem.allocate(capacity, z_dim, 32, knn)
 
@@ -53,6 +55,9 @@ class LRU_KNN_COUNT_GPU_FIXMEM(object):
             return self.external_value[ind], self.beta / np.sqrt(self.count[ind]) if self.count[ind] > 0 else self.rmax
 
         return None, self.rmax
+
+    def log(self, *args, logtype='debug', sep=' '):
+        getattr(self.logger, logtype)(sep.join(str(a) for a in args))
 
     def knn_value(self, key, knn):
         # knn = min(self.curr_capacity, knn)
@@ -93,6 +98,8 @@ class LRU_KNN_COUNT_GPU_FIXMEM(object):
             key = key[np.newaxis, ...]
         dist, ind = knn_cuda_fixmem.knn(self.address, key, knn, int(self.curr_capacity))
         dist, ind = np.transpose(dist), np.transpose(ind - 1)
+        self.log("norm", np.linalg.norm(key.squeeze()))
+        self.log("dist", dist)
         # print(dist.shape, ind.shape, len(key), key.shape)
         # print("nearest dist", dist[0][0])
         for i in range(len(dist)):

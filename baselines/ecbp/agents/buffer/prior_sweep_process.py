@@ -60,7 +60,7 @@ class PriorSweepProcess(Process):
 
     def observe(self, sa_pair):
         # self.update_enough.wait(timeout=1000)
-        self.log("ps pqueue len", len(self.pqueue))
+        # self.log("ps pqueue len", len(self.pqueue))
         # grow model
         index_tp1, count_t = self.grow_model(sa_pair)
         # update current value

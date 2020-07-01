@@ -8,7 +8,7 @@ import datetime
 from baselines import logger
 from baselines import deepq
 from baselines.ecbp.env.fourrooms import Fourrooms
-from baselines.ecbp.env.tworooms import Tworooms
+# from baselines.ecbp.env.tworooms import Tworooms
 from baselines.common.atari_wrappers_deprecated import FrameStack
 from baselines.common.atari_lib import MKPreprocessing
 from baselines.common.atari_lib import CropWrapper
@@ -179,15 +179,14 @@ def create_env(args):
         env = atari_env_vast(**params["env_params"])
     elif args.env == "mujoco":
         from gym.envs.registration import register
-        goal_args = [[8.0, 0.0], [8 + 1e-3, 0 + 1e-3]]
+        goal_args = [[0.0, 16.0], [0 + 1e-3, 16 + 1e-3], [0.0, 6.0], [15 + 1e-3, 10 + 1e-3]]
         random_start = False
         # The episode length for test is 500
         max_timestep = 500
-
         register(
             id='PointMazeTest-v10',
             entry_point='mujoco.create_maze_env:create_maze_env',
-            kwargs={'env_name': 'DiscretePointMaze', 'goal_args': goal_args, 'maze_size_scaling': 4,
+            kwargs={'env_name': 'DiscretePointBlock', 'goal_args': goal_args, 'maze_size_scaling': 4,
                     'random_start': random_start},
             max_episode_steps=max_timestep,
         )
