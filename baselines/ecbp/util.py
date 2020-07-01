@@ -7,6 +7,7 @@ import baselines.common.tf_util as U
 import datetime
 from baselines import logger
 from baselines import deepq
+from baselines.ecbp.env.d4rl_wrapper import D4RLDiscreteMazeEnvWrapper
 from baselines.ecbp.env.fourrooms import Fourrooms
 # from baselines.ecbp.env.tworooms import Tworooms
 from baselines.common.atari_wrappers_deprecated import FrameStack
@@ -14,7 +15,7 @@ from baselines.common.atari_lib import MKPreprocessing
 from baselines.common.atari_lib import CropWrapper
 from baselines.common.atari_lib import NoisyEnv
 from baselines.common.atari_lib import DoomPreprocessing
-from baselines.doom.environment import DoomEnvironment
+# from baselines.doom.environment import DoomEnvironment
 from baselines.common.misc_util import (
     boolean_flag,
     pickle_load,
@@ -195,6 +196,13 @@ def create_env(args):
         game_version = 'v0'
         env = gym.make('{}-{}'.format(args.env_name, game_version))
         env = NoisyEnv(env, args.noise_dim, args.noise_var)
+    elif args.env == "d4rl":
+        import d4rl
+        env = gym.make(args.env_name)
+
+        if "maze" in args.env_name:
+            env = D4RLDiscreteMazeEnvWrapper(env)
+
     else:
         raise NotImplementedError
     if args.seed > 0:
