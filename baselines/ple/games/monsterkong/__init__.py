@@ -4,15 +4,15 @@ import sys
 from pygame.constants import K_a, K_d, K_SPACE, K_w, K_s, QUIT, KEYDOWN
 from .board import Board
 # from ..base import base
-# from ple.games import base
-from ple.games.base.pygamewrapper import PyGameWrapper
+# from baselines.ple.games import base
+from baselines.ple.games.base.pygamewrapper import PyGameWrapper
 import numpy as np
 import os
 
 
 class MonsterKong(PyGameWrapper):
 
-    def __init__(self, map_config=None):
+    def __init__(self, map_config=None,noise_size=1):
         """
         Parameters
         ----------
@@ -33,6 +33,8 @@ class MonsterKong(PyGameWrapper):
             self.map_array = map_config['map_array']
             self.height = 15 * len(self.map_array)
             self.width = 15 * len(self.map_array[0])
+
+        self.noisy_background = map_config.get('noisy_background', False)
 
         actions = {
             "left": K_a,
@@ -67,6 +69,13 @@ class MonsterKong(PyGameWrapper):
             "still": pygame.image.load(os.path.join(self._dir, 'assets/still.png'))
         }
 
+        self.noiseimage = None
+        self.noise_size = noise_size
+        self.random_noise = None
+        random_range = 40
+        self.random_noise = np.random.randint(-random_range // 2, random_range // 2,
+                                              (self.noise_size, self.width, self.height, 3))
+
     def init(self):
         # Create a new instance of the Board class
         self.newGame = Board(
@@ -75,7 +84,8 @@ class MonsterKong(PyGameWrapper):
             self.rewards,
             self.rng,
             self._dir,
-            self.map_config)
+            self.map_config,
+            self.random_noise)
 
         # Initialize the fireball timer
         # self.fireballTimer = 0
@@ -99,7 +109,7 @@ class MonsterKong(PyGameWrapper):
         # Get the appropriate groups
         self.fireballGroup = self.newGame.fireballGroup
         self.coinGroup = self.newGame.coinGroup
-
+        self.gemGroup = self.newGame.gemGroup
         # Create fireballs as required, depending on the number of monsters in
         # our game at the moment
         # if self.fireballTimer == 0:
@@ -114,8 +124,8 @@ class MonsterKong(PyGameWrapper):
         # self.fireballTimer = (self.fireballTimer + 1) % 70
 
         # Animate the coin
-        for coin in self.coinGroup:
-            coin.animateCoin()
+        # for coin in self.coinGroup:
+        #     coin.animateCoin()
 
         # To check collisions below, we move the player downwards then check
         # and move him back to his original location
@@ -221,7 +231,7 @@ class MonsterKong(PyGameWrapper):
                     self.newGame.Players[0].updateWH(self.IMAGES["still"], "V",
                                                      -self.newGame.Players[0].getSpeed(), 15, 15)
 
-                    #modified by huhao
+                    # modified by huhao
                     if (len(self.laddersCollidedExact) == 0) or len(
                             self.newGame.Players[0].checkCollision(self.wallGroup)) != 0:
                         # if len(self.newGame.Players[0].checkCollision(self.ladderGroup)) == 0 or len(
@@ -247,7 +257,7 @@ class MonsterKong(PyGameWrapper):
         '''
 
         # Redraws all our instances onto the screen
-        self.newGame.redrawScreen(self.screen, self.width, self.height)
+        self.newGame.redrawScreen(self.screen, self.width, self.height, self.noisy_background)
 
         # Update the fireball and check for collisions with player (ie Kill the
         # player)
@@ -264,7 +274,10 @@ class MonsterKong(PyGameWrapper):
         # Collect a coin
         coinsCollected = pygame.sprite.spritecollide(
             self.newGame.Players[0], self.coinGroup, True)
+        gemCollected = pygame.sprite.spritecollide(
+            self.newGame.Players[0], self.gemGroup, True)
         self.newGame.coinCheck(coinsCollected)
+        self.newGame.gemCheck(gemCollected)
 
         # Check if you have reached the princess
         self.newGame.checkVictory()

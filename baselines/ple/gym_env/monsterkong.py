@@ -5,16 +5,17 @@ import time
 from gym import error, spaces
 from gym import utils
 from gym.utils import seeding
-from ple import PLE
-from ple.games.monsterkong import MonsterKong
+# from baselines.ple import ple
+from baselines.ple.ple import PLE
+from baselines.ple.games.monsterkong import MonsterKong
 
 
 class MonsterKongEnv(gym.Env):
     metadata = {'render.modes': ['human']}
 
-    def __init__(self, map_config, seed=1):
+    def __init__(self, map_config, noise_size=1,seed=1):
         self.map_config = map_config
-        self.game = MonsterKong(self.map_config)
+        self.game = MonsterKong(self.map_config,noise_size)
 
         self.fps = 30
         self.frame_skip = map_config['frame_skip']
@@ -37,6 +38,7 @@ class MonsterKongEnv(gym.Env):
             self.nb_frames = map_config['episode_length']
         if 'episode_end_sleep' in map_config:
             self.episode_end_sleep = map_config['episode_end_sleep']
+
         self.current_step = 0
 
         self._seed(seed)
@@ -68,9 +70,9 @@ class MonsterKongEnv(gym.Env):
         done = self.p.game_over()
         self.current_step += 1
         if done:
-            info = [{'PLE': self.p, 'episode': {'r': reward, 'l': self.current_step}}]
+            info = {'PLE': self.p, 'episode': {'r': reward, 'l': self.current_step}}
         else:
-            info = [{'PLE': self.p}]
+            info = {'PLE': self.p}
         if self.current_step >= self.nb_frames:
             done = True
         return obs, reward, done, info

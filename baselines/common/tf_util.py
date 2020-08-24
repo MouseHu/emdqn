@@ -150,7 +150,7 @@ class BatchInput(PlacholderTfInput):
 
 
 class Uint8Input(PlacholderTfInput):
-    def __init__(self, shape, name=None):
+    def __init__(self, shape, batch_size=None, name=None):
         """Takes input in uint8 format which is cast to float32 and divided by 255
         before passing it to the model.
 
@@ -164,13 +164,34 @@ class Uint8Input(PlacholderTfInput):
             name of the underlying placeholder
         """
 
-        super().__init__(tf.placeholder(tf.uint8, [None] + list(shape), name=name))
+        super().__init__(tf.placeholder(tf.uint8, [batch_size] + list(shape), name=name))
         self._shape = shape
         self._output = tf.cast(super().get(), tf.float32) / 255.0
 
     def get(self):
         return self._output
 
+class Float32Input(PlacholderTfInput):
+    def __init__(self, shape, batch_size=None,name=None):
+        """Takes input in uint8 format which is cast to float32 and divided by 255
+        before passing it to the model.
+
+        On GPU this ensures lower data transfer times.
+
+        Parameters
+        ----------
+        shape: [int]
+            shape of the tensor.
+        name: str
+            name of the underlying placeholder
+        """
+
+        super().__init__(tf.placeholder(tf.float32, [batch_size] + list(shape), name=name))
+        self._shape = shape
+        self._output = tf.cast(super().get(), tf.float32)
+
+    def get(self):
+        return self._output
 
 def ensure_tf_input(thing):
     """Takes either tf.placeholder of TfInput and outputs equivalent TfInput"""

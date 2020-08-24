@@ -429,6 +429,7 @@ def build_train_dqn(make_obs_ph, q_func, num_actions, optimizer, grad_norm_clipp
             update_target_expr.append(var_target.assign(var))
         update_target_expr = tf.group(*update_target_expr)
 
+        error_summary = tf.summary.scalar("")
         # Create callable functions
         train = U.function(
             inputs=[

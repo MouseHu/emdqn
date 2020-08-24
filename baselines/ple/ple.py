@@ -3,7 +3,7 @@ from PIL import Image  # pillow
 import sys
 
 import pygame
-from .games.base.pygamewrapper import PyGameWrapper
+from baselines.ple.games.base.pygamewrapper import PyGameWrapper
 
 class PLE(object):
     """

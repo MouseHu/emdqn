@@ -127,6 +127,7 @@ def build_train_contrast(make_obs_ph, model_func, num_actions, optimizer, grad_n
     debug: {str: function}
         a bunch of functions to print debug data like q_values.
     """
+
     z_func = build_act_contrast(make_obs_ph, model_func, num_actions, scope=scope, secondary_scope="model_func",
                                 reuse=reuse)
 
@@ -189,7 +190,7 @@ def build_train_contrast(make_obs_ph, model_func, num_actions, optimizer, grad_n
         # update_target_fn will be called periodically to copy Q network to target Q network
         z_var_summary = tf.summary.scalar("z_var", tf.reduce_mean(tf.math.reduce_std(z_mc, axis=1)))
         negative_summary = tf.summary.scalar("negative", tf.reduce_mean(tf.reduce_mean(negative)))
-        positive_summary = tf.summary.scalar("positive", tf.reduce_mean(tf.reduce_mean(positive)))
+        positive_summary  = tf.summary.scalar("positive", tf.reduce_mean(tf.reduce_mean(positive)))
         contrast_loss_summary = tf.summary.scalar("contrast loss", tf.reduce_mean(contrast_loss))
         # prediction_loss_summary = tf.summary.scalar("prediction loss", tf.reduce_mean(prediction_loss))
         total_loss_summary = tf.summary.scalar("total loss", tf.reduce_mean(total_loss))

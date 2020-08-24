@@ -1,1 +1,1 @@
-from .ple import PLE
+from baselines.ple.ple import PLE

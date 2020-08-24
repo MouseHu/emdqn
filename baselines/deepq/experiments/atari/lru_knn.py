@@ -1,4 +1,3 @@
-
 import numpy as np
 from sklearn.neighbors import BallTree, KDTree
 import os
@@ -59,7 +58,8 @@ class LRU_KNN:
 
         # if self.states[ind] == key:
         # if np.allclose(self.states[ind], key):
-        if np.allclose(self.states[ind], key, atol=1e-08):
+        # if np.allclose(self.states[ind], key, atol=1e-08):
+        if dist[0][0] < 1e-2:
             self.lru[ind] = self.tm
             self.tm += 0.01
             if modify:
@@ -77,17 +77,24 @@ class LRU_KNN:
 
         dist, ind = self.tree.query([key], k=knn)
         coeff = np.exp(dist[0])
-        coeff = coeff/np.sum(coeff)
+        coeff = coeff / np.sum(coeff)
         value = 0.0
         value_decay = 0.0
-        for j,index in enumerate(ind[0]):
-            value_decay += self.q_values_decay[index]*coeff[j]
+        for j, index in enumerate(ind[0]):
+            value_decay += self.q_values_decay[index] * coeff[j]
             self.lru[index] = self.tm
             self.tm += 0.01
 
-        q_decay = value_decay / knn
+        q_decay = value_decay
 
         return q_decay
+
+    def act_value(self, key, knn):
+        exact_reference = self.peek(key, 0, modify=False)
+        if exact_reference:
+            return exact_reference, True
+        else:
+            return self.knn_value(key, knn), False
 
     def add(self, key, value_decay):
         if self.curr_capacity >= self.capacity:
@@ -121,7 +128,7 @@ class LRU_KNN:
     def update_kdtree(self):
         if self.build_tree:
             del self.tree
-        #print(self.curr_capacity)
+        # print(self.curr_capacity)
         self.tree = KDTree(self.states[:self.curr_capacity])
         self.build_tree = True
         self.build_tree_times += 1

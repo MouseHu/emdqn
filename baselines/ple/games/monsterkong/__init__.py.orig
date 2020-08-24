@@ -5,7 +5,7 @@ from pygame.constants import K_a, K_d, K_SPACE, K_w, K_s, QUIT, KEYDOWN
 from .board import Board
 #from ..base import base
 #from ple.games import base
-from ple.games.base.pygamewrapper import PyGameWrapper
+from baselines.ple.games.base.pygamewrapper import PyGameWrapper
 import numpy as np
 import os
 

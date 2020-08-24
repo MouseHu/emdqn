@@ -6,7 +6,7 @@ from pygame.constants import KEYDOWN, KEYUP, K_F15
 class PyGameWrapper(object):
     """PyGameWrapper  class
 
-    ple.games.base.PyGameWrapper(width, height, actions={})
+    baselines.ple.games.base.PyGameWrapper(width, height, actions={})
 
     This :class:`PyGameWrapper` class sets methods all games require. It should be subclassed when creating new games.
 
