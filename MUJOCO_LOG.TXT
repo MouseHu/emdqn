@@ -1,0 +1,24 @@
+Wed May 20 21:00:18 2020
+ERROR: Invalid activation key
+
+Wed May 20 21:21:51 2020
+ERROR: Invalid activation key
+
+Wed May 20 21:23:46 2020
+ERROR: Invalid activation key
+
+Wed May 20 21:23:53 2020
+ERROR: Invalid activation key
+
+Wed May 20 21:26:57 2020
+ERROR: Invalid activation key
+
+Wed May 20 21:28:53 2020
+ERROR: Invalid activation key
+
+Wed May 20 21:29:05 2020
+ERROR: Invalid activation key
+
+Wed May 20 21:58:18 2020
+ERROR: GLEW initalization error: Missing GL version
+

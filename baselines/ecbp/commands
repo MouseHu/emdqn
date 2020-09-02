@@ -1,0 +1,13 @@
+CUDA_VISIBLE_DEVICES=1 nohup python train_learning_generalize.py --base_log_dir=~/mer/ --log_dir=./tflogs/mer_mk_2 --comment=contrast_noise_10 --env=mk --env_name=hard --num-steps=400000 --buffer-size=5000 --lr=1e-4 --negative-samples=1 > ./logs/1.log &
+CUDA_VISIBLE_DEVICES=2 nohup python train_learning_generalize.py --base_log_dir=~/mer/ --log_dir=./tflogs/mer_mk_2 --comment=contrast+causality_noise_10 --env=mk --env_name=hard --num-steps=400000 --buffer-size=5000 --lr=1e-4 --negative-samples=1 > ./logs/2.log &
+CUDA_VISIBLE_DEVICES=3 nohup python train_learning_generalize.py --base_log_dir=~/mer/ --log_dir=./tflogs/mer_mk_2 --comment=attention_nolearning_noise_10 --env=mk --env_name=hard --num-steps=400000 --buffer-size=5000 --lr=1e-4 --negative-samples=1 > ./logs/3.log &
+CUDA_VISIBLE_DEVICES=4 nohup python train_learning_generalize.py --base_log_dir=~/mer/ --log_dir=./tflogs/mer_mk_2 --comment=contrast+causality+weight_product_noise_10 --env=mk --env_name=hard --num-steps=400000 --buffer-size=5000 --lr=1e-4 --negative-samples=1 > ./logs/4.log &
+CUDA_VISIBLE_DEVICES=5 nohup python train_learning_generalize.py --base_log_dir=~/mer/ --log_dir=./tflogs/mer_mk_2 --comment=weight_product_noise_10 --env=mk --env_name=hard --num-steps=400000 --buffer-size=5000 --lr=1e-4 --negative-samples=1 > ./logs/5.log &
+CUDA_VISIBLE_DEVICES=6 nohup python train_learning_generalize.py --base_log_dir=~/mer/ --log_dir=./tflogs/mer_mk_2 --comment=attention_contrast_noise_10 --env=mk --env_name=hard --num-steps=400000 --buffer-size=5000 --lr=1e-4 --negative-samples=1 > ./logs/6.log &
+
+
+CUDA_VISIBLE_DEVICES=1 python train_learning_generalize.py --base_log_dir=/home/hh/mer/ --log_dir=./tflogs/attn_mk --comment=test_visual --env=mk --env_name=hard --num-steps=40000 --buffer-size=5000 --lr=1e-4 --negative-samples=1
+
+CUDA_VISIBLE_DEVICES=1 python run_visualize_attention.py --base_log_dir=/home/hh/mer/ --load_dir=./agents/08-12-2020-16:02:00 test_visual/ --log_dir=./tflogs/attn_mk --comment=test_visual --env=mk --env_name=hard --num-steps=40000 --buffer-size=5000 --lr=1e-4 --negative-samples=1
+
+CUDA_VISIBLE_DEVICES=1 python train_learning_generalize.py --base_log_dir=/data1/hh/vrf/ --log_dir=./tflogs/attn_coinrun --comment=mask --env=coinrun --env_name=standard --num-steps=400000 --buffer-size=10000 --lr=1e-4 --negative-samples=1
