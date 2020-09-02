@@ -9,20 +9,25 @@ import tensorflow as tf
 from baselines.ecbp.agents.graph.build_graph_dueling import *
 from baselines.ecbp.agents.graph.build_graph_contrast_hash import *
 from baselines.ecbp.agents.graph.build_graph_contrast_target import *
+
 from baselines.ecbp.agents.graph.build_graph_mer import *
+
 from baselines import logger
 import copy
 import logging
 from multiprocessing import Pipe
 import cv2
 import matplotlib.pyplot as plt
+
 import pickle as pkl
 import os
+
 
 
 class PSMPLearnTargetAgent(object):
     def __init__(self, model_func, exploration_schedule, obs_shape, vector_input=True, lr=1e-4, buffer_size=1000000,
                  num_actions=6, latent_dim=32,
+
                  gamma=0.99, knn=4, eval_epsilon=0.1, queue_threshold=5e-5, batch_size=32, density=True, trainable=True,
                  num_neg=10, debug=False,debug_dir = None,tf_writer=None):
         self.obs_shape = obs_shape
@@ -32,6 +37,7 @@ class PSMPLearnTargetAgent(object):
         self.replay_buffer = np.empty((buffer_size + 10,) + obs_shape, np.float32 if vector_input else np.uint8)
         self.ec_buffer = PSLearningProcess(num_actions, buffer_size, latent_dim, obs_shape, child_conn, gamma,
                                            density=density)
+
         self.obs = None
         self.z = None
         self.cur_capacity = 0
@@ -53,6 +59,7 @@ class PSMPLearnTargetAgent(object):
         self.train_step = 4
         self.alpha = 1
         self.burnin = 2000
+
         self.burnout = 10000000000
         self.update_target_freq = 10000
         self.buffer_capacity = 0
@@ -64,16 +71,19 @@ class PSMPLearnTargetAgent(object):
         self.hash_func, self.train_func, self.eval_func, self.norm_func, self.update_target_func = build_train_mer(
             input_type=input_type,
             obs_shape=obs_shape,
+
             model_func=model_func,
             num_actions=num_actions,
             optimizer=tf.train.AdamOptimizer(learning_rate=lr, epsilon=1e-4),
             gamma=gamma,
             grad_norm_clipping=10,
             latent_dim=latent_dim,
+
             loss_type=self.loss_type,
             batch_size=batch_size,
             num_neg=num_neg,
             c_loss_type="infonce",
+
         )
         self.finds = [0, 0]
 
@@ -89,6 +99,7 @@ class PSMPLearnTargetAgent(object):
             recv_msg, recv_obj = self.conn.recv()
             assert msg == recv_msg
             return recv_obj
+
 
     def save(self, filedir, sess, saver):
         if not os.path.isdir(filedir):
@@ -126,13 +137,16 @@ class PSMPLearnTargetAgent(object):
         index_tar, index_pos, index_neg, reward_tar, value_tar, action_tar, neighbours_index, neighbours_value = samples
         if len(index_tar) < self.batch_size:
             return
+
         obs_tar = [self.replay_buffer[ind] for ind in index_tar]
         obs_pos = [self.replay_buffer[ind] for ind in index_pos]
         obs_neg = [self.replay_buffer[ind] for ind in index_neg]
         obs_neighbour = [self.replay_buffer[ind] for ind in neighbours_index]
+
         obs_u = [self.replay_buffer[ind] for ind in index_u]
         obs_v = [self.replay_buffer[ind] for ind in index_v]
         # print(obs_tar[0].shape)
+
         if "regression" in self.loss_type:
             value_original = self.norm_func(np.array(obs_tar))
             value_tar = np.array(value_tar)
@@ -156,12 +170,14 @@ class PSMPLearnTargetAgent(object):
             input += [obs_neighbour, np.nan_to_num(neighbours_value)]
             if "regression" not in self.loss_type:
                 input += [np.nan_to_num(value_tar)]
+
         if "causality" in self.loss_type:
             input += [reward_tar, action_tar]
         if "weight_product" in self.loss_type:
             value_u = np.nan_to_num(np.array(value_u))
             value_v = np.nan_to_num(np.array(value_v))
             input += [obs_u, obs_v, obs_u, obs_v, value_u, value_v]
+
         func = self.train_func if self.steps < self.burnout else self.eval_func
         loss, summary = func(*input)
         # self.log("finish training")
@@ -180,29 +196,35 @@ class PSMPLearnTargetAgent(object):
             z_to_update = self.hash_func(np.array(obs_to_update).astype(np.float32))
             # self.log("z shape", np.array(z_to_update).shape)
             self.send_and_receive(5, (np.arange(low, high), np.array(z_to_update)[0]))
+
         self.send_and_receive(8, 0)  # recompute density
         self.log("finish updating target")
 
     def act(self, obs, is_train=True,debug=False):
 
+
         if is_train:
             self.steps += 1
             if self.steps % 100 == 0:
                 self.log("steps", self.steps)
+
         # else:
         # self.log("obs", obs)
+
         # print(obs)
         self.obs = obs
         # print("in act",obs)
         self.z = self.hash_func(np.array(obs))
         self.z = np.array(self.z).reshape((self.latent_dim,))
         if is_train:
+
             if self.ind < 0 or self.ind >= self.buffer_capacity:
                 self.ind = self.send_and_receive(1, (np.array(self.z), None))
                 self.cur_capacity = max(self.ind, self.cur_capacity)
             # print(self.ind)
             self.replay_buffer[self.ind] = obs
             self.buffer_capacity = max(self.ind, self.buffer_capacity)
+
         # self.steps += 1
         epsilon = max(0, self.exploration_schedule.value(self.steps)) if is_train else self.eval_epsilon
         if np.random.random() < epsilon:
@@ -210,12 +232,14 @@ class PSMPLearnTargetAgent(object):
             return action
         else:
             # finds = np.zeros((1,))
+
             extrinsic_qs, intrinsic_qs, find,inds = self.send_and_receive(0, (np.array([self.z]), None, self.knn))
             extrinsic_qs, intrinsic_qs = np.array(extrinsic_qs), np.array(intrinsic_qs)
             if len(inds) > 1 and debug:
                 self.save_neighbour(inds)
             self.finds[0] += sum(find)
             self.finds[1] += 1
+
             if is_train:
                 q = extrinsic_qs
             else:
@@ -233,6 +257,7 @@ class PSMPLearnTargetAgent(object):
             action_selected = np.random.randint(0, len(max_action))
             return int(max_action[action_selected])
 
+
     def save_neighbour(self,inds):
         save_path = os.path.join(self.debug_dir,"./neighbour/{}".format(self.steps))
         if not os.path.exists(save_path):
@@ -247,6 +272,7 @@ class PSMPLearnTargetAgent(object):
         self.steps = 0
         self.send_and_receive(9, 0)
 
+
     def observe(self, action, reward, state_tp1, done, train=True):
         if self.steps <= 1:
             self.update_target_func()
@@ -257,24 +283,30 @@ class PSMPLearnTargetAgent(object):
             self.ind = self.send_and_receive(2, (self.ind, action, reward, z_tp1, None, done))
             self.cur_capacity = max(self.ind, self.cur_capacity)
             self.replay_buffer[self.ind] = state_tp1
+
             self.buffer_capacity = max(self.ind, self.buffer_capacity)
+
         else:
             self.ind = -1
             # self.ind = self.send_and_receive(1, (np.array([z_tp1]), None))
 
         if done:
             self.ind = -1
+
             if self.writer is not None:
                 find_summary = tf.Summary(
                     value=[tf.Summary.Value(tag="find rate", simple_value=self.finds[0] / (self.finds[1] + 1e-9))])
                 self.writer.add_summary(find_summary, global_step=self.steps)
+
             self.finds = [0, 0]
             # self.steps = 0
         if self.steps > self.burnout:
             return
+
         if self.steps % self.train_step == 0 and self.steps >= self.burnin and train and self.trainable:
             self.train()
         if self.steps % self.update_target_freq == 0 and self.steps >= self.burnin and train and self.trainable:
+
             self.update_target()
         # else:
         #     self.log("not trai ning ", self.steps,self.steps % self.train_step == 0, self.steps >= self.burnin, train)

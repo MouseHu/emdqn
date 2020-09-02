@@ -141,8 +141,10 @@ map_config = {
     'fps': 1000,
     'frame_skip': 1,
     'force_fps': True,  # set to true to make the game run as fast as possible
+
     'display_screen': False,
     'episode_length': 2400,
     'episode_end_sleep': 0.,  # sec
     'noisy_background': True,
+
 }

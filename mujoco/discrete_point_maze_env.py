@@ -21,7 +21,9 @@ class DiscretePointMazeEnv(PointMazeEnv):
             manual_collision=False,
             goal=None,
             disturb=False,
+
             amplify=1,
+
             *args,
             **kwargs):
         super(DiscretePointMazeEnv, self).__init__(maze_id,
@@ -36,13 +38,17 @@ class DiscretePointMazeEnv(PointMazeEnv):
                                                    manual_collision,
                                                    goal,
 
+
+
                                                    *args,
                                                    **kwargs)
 
         self.actual_action_space = self.action_space
         self.pseudo_action_space = gym.spaces.Discrete(4)
         self.disturb = False
+
         self.amplify = amplify
+
 
     def reset(self):
         obs = super(DiscretePointMazeEnv, self).reset()
@@ -63,6 +69,7 @@ class DiscretePointMazeEnv(PointMazeEnv):
         if type(action) is not int:
             actual_action = np.array([0, 0])
         elif action == 0:
+
             actual_action = np.array([0, ub[1] * (1+0.1*disturb)* self.amplify])
         elif action == 1:
             actual_action = np.array([0, lb[1] * (1+0.1*disturb)* self.amplify])
@@ -70,6 +77,7 @@ class DiscretePointMazeEnv(PointMazeEnv):
             actual_action = np.array([ub[0] * 0.5*(1+0.1*disturb)* self.amplify, 0])
         elif action == 3:
             actual_action = np.array([lb[0] * 0.5*(1+0.1*disturb)* self.amplify, 0])
+
         else:
             actual_action = np.array([0, 0])
 

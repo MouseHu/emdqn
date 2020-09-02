@@ -14,12 +14,14 @@ import threading
 from multiprocessing import Process
 from multiprocessing import Lock, Event
 from multiprocessing import Manager
+
 import pickle as pkl
 
 
 class PSLearningProcess(Process):
     def __init__(self, num_actions, buffer_size, latent_dim, obs_dim, conn, gamma=0.99, knn=4, queue_threshold=5e-5,
                  density=True):
+
         super(PSLearningProcess, self).__init__()
         self.num_actions = num_actions
         self.gamma = gamma
@@ -40,9 +42,11 @@ class PSLearningProcess(Process):
         # self.queue_lock = Lock()
         self.pqueue = HashPQueue()
         self.sequence = []
+
         self.first_ob_index = -10
         self.use_density = density
         self.ec_buffer = None
+
 
     def log(self, *args, logtype='debug', sep=' '):
         getattr(self.logger, logtype)(sep.join(str(a) for a in args))
@@ -52,8 +56,10 @@ class PSLearningProcess(Process):
         index_tp1, knn_dist, knn_ind = self.ec_buffer.peek(z_tp1)
         # self.log("finish peek")
         if index_tp1 < 0:
+
             index_tp1, override = self.ec_buffer.add_node(z_tp1, knn_dist, knn_ind)
             # index_tp1, override = self.ec_buffer.add_node(z_tp1)
+
 
             # self.log("add node", index_tp1, logtype='debug')
             if override:
@@ -66,6 +72,7 @@ class PSLearningProcess(Process):
         # if sa_coun t > self.sa_explore:
         #     self.ec_buffer.internal_value[index_t, action_t] = 0
         return index_tp1, sa_count
+
 
     def save(self, filedir):
         while len(self.pqueue) > 0:  # empty pqueue
@@ -89,6 +96,7 @@ class PSLearningProcess(Process):
             # print(z_to_update.shape,np.arange(low, high))
             # self.log("z shape", np.array(z_to_update).shape)
             self.ec_buffer.update(np.arange(low, high), np.array(z_to_update))
+
 
     def observe(self, sa_pair):
         # self.update_enough.wait(timeout=1000)
@@ -124,6 +132,7 @@ class PSLearningProcess(Process):
             self.conn.send((2, index_tp1))
             return
         value_tp1 = np.nan_to_num(self.ec_buffer.state_value_u[index_tp1], copy=True)
+
         self.log("ps update s,a,count,new_value,old_value", index_t, action_t, count_t,
                  reward_t + self.gamma * value_tp1,
                  self.ec_buffer.external_value[index_t, action_t])
@@ -132,13 +141,16 @@ class PSLearningProcess(Process):
         self.ec_buffer.external_value[index_t, action_t] += 1 / count_t * (
                 reward_t + self.gamma * value_tp1 - self.ec_buffer.external_value[index_t, action_t])
         self.ec_buffer.state_value_v[index_t] = np.nanmax(self.ec_buffer.external_value[index_t, :])
+
         priority = abs(
             self.ec_buffer.state_value_v[index_t] - np.nan_to_num(self.ec_buffer.state_value_u[index_t], copy=True))
         if priority > self.queue_threshold:
             self.pqueue.push(priority, index_t)
+
             # self.log("add queue", priority, len(self.pqueue))
         # self.iters_per_step = 0
         # self.update_enough.clear()
+
 
         assert index_tp1 != -1
         self.conn.send((2, index_tp1))
@@ -167,9 +179,11 @@ class PSLearningProcess(Process):
             delta_u = self.ec_buffer.state_value_v[index] - np.nan_to_num(self.ec_buffer.state_value_u[index],
                                                                           copy=True)
             self.ec_buffer.state_value_u[index] = self.ec_buffer.state_value_v[index]
+
             self.log("backup node", index, "priority", priority, "new value",
                      self.ec_buffer.state_value_v[index],
                      "delta", delta_u)
+
             # self.log("pqueue len",len(self.pqueue))
             for sa_pair in self.ec_buffer.prev_id[index]:
                 state_tm1, action_tm1 = sa_pair
@@ -195,9 +209,11 @@ class PSLearningProcess(Process):
     #     return ind
 
     def run(self):
+
         buffer = LRU_KNN_GPU_PS_DENSITY if self.use_density else LRU_KNN_GPU_PS
         self.ec_buffer = buffer(self.buffer_size, self.latent_dim, 'game', 0, self.num_actions,
                                 self.knn)
+
         while self.run_sweep:
             self.backup()
             if self.update_enough:
@@ -206,15 +222,19 @@ class PSLearningProcess(Process):
 
     def retrieve_q_value(self, obj):
         z, h, knn = obj
+
         extrinsic_qs, intrinsic_qs, find, neighbour_ind = self.ec_buffer.act_value(z, knn)
         self.conn.send((0, (extrinsic_qs, intrinsic_qs, find,neighbour_ind)))
+
 
     def peek_node(self, obj):
         z, h = obj
         ind, knn_dist, knn_ind = self.ec_buffer.peek(z)
         if ind == -1:
+
             ind, _ = self.ec_buffer.add_node(z, knn_dist, knn_ind)
             # ind, _ = self.ec_buffer.add_node(z)
+
             self.log("add node for first ob ", ind)
             self.first_ob_index = ind
         assert ind != -1
@@ -242,7 +262,9 @@ class PSLearningProcess(Process):
                 self.run_sweep = False
                 self.conn.send((3, True))
             elif msg == 4:
+
                 sampled = self.ec_buffer.sample(*obj)
+
                 self.conn.send((4, sampled))
             elif msg == 5:
                 indexes, z_new = obj
@@ -252,6 +274,7 @@ class PSLearningProcess(Process):
                 indexes = obj
 
                 self.conn.send((6, self.ec_buffer.states[indexes]))
+
             elif msg == 7:
                 indexes = obj
                 self.conn.send((7, np.nanmax(self.ec_buffer.external_value[indexes, :])))
@@ -271,5 +294,6 @@ class PSLearningProcess(Process):
                 filedir = obj
                 self.load(filedir)
                 self.conn.send((11, 0))
+
             else:
                 raise NotImplementedError

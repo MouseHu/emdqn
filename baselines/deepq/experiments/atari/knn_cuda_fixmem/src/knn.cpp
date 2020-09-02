@@ -61,6 +61,7 @@ object extract_feature(PyObject* activation_, PyObject* coords_)
   return arr.copy();
 }
 
+<<<<<<< HEAD
 object knn_fix_ref_conditional(object address_num,PyObject* query_points_, PyObject* musk_,int k,int cur_capacity)
 {
   PyArrayObject* query_points = (PyArrayObject*) query_points_;
@@ -104,11 +105,35 @@ object knn_fix_ref_conditional(object address_num,PyObject* query_points_, PyObj
   return make_tuple(arr_dist.copy(), arr_ind.copy());
 }
 
+=======
+//PyObject* AddresstoArray(KNNAddress& address){
+//  npy_intp dims[1] = {4};
+//  unsigned long long int *address_int = new unsigned long long int[4];
+//  address_int[0] = (unsigned long long int)address.query_dev;
+//  address_int[1] = (unsigned long long int)address.ref_dev;
+//  address_int[2] = (unsigned long long int)address.dist_dev;
+//  address_int[3] = (unsigned long long int)address.ind_dev;
+////  printf("allocate array: %llu %llu %llu %llu \n",address_int[0],address_int[1],address_int[2],address_int[3]);
+//  PyObject* py_obj_address = PyArray_SimpleNewFromData(1, dims, NPY_ULONGLONG, address_int);
+//  return py_obj_address;
+//}
+//KNNAddress ArraytoAddress(PyObject* py_address){
+//  PyArrayObject* py_array_address = (PyArrayObject*) py_address;
+//  KNNAddress address=KNNAddress();
+//  address.query_dev=*(float**)PyArray_GETPTR1(py_array_address, 0);
+//address.ref_dev=*(float**)PyArray_GETPTR1(py_array_address, 1);
+//address.dist_dev=*(float**)PyArray_GETPTR1(py_array_address, 2);
+//address.ind_dev=*(int**)PyArray_GETPTR1(py_array_address, 3);
+////printf("readback: %llu %llu %llu %llu \n",address.query_dev,address.ref_dev,address.dist_dev,address.ind_dev);
+//return address;
+//}
+>>>>>>> 77781e86f48792f429abd667cea97c4aa6aaf2f3
 // CUDA K-NN wrapper
 // Takes features and retuns the distances and indices of the k-nearest
 // neighboring features.
 object knn_fix_ref(object address_num,PyObject* query_points_, int k,int cur_capacity)
 {
+<<<<<<< HEAD
   PyArrayObject* query_points = (PyArrayObject*) query_points_;
   int n_query = query_points->dimensions[0];
   int dim     = query_points->dimensions[1];
@@ -118,6 +143,21 @@ object knn_fix_ref(object address_num,PyObject* query_points_, int k,int cur_cap
   float* dist = new float[n_query * k];
   int* ind    = new int[n_query * k];
 
+=======
+//printf("???\n");
+  PyArrayObject* query_points = (PyArrayObject*) query_points_;
+//  printf("knn here is ok 0.2\n");
+  int n_query = query_points->dimensions[0];
+  int dim     = query_points->dimensions[1];
+  int address_num_c = extract<int>(address_num);
+//  KNNAddress address_c = ArraytoAddress(address);
+//  printf("knn here is ok 0.8\n");
+  float* query_points_c = new float[n_query * dim];
+  float* dist = new float[n_query * k];
+  int* ind    = new int[n_query * k];
+//printf("knn here is ok 0.9\n");
+  // Copy python objects
+>>>>>>> 77781e86f48792f429abd667cea97c4aa6aaf2f3
   for(int i = 0; i < n_query; i++) {
     for(int j = 0; j < dim; j++) {
       query_points_c[j + i*dim] =
@@ -125,16 +165,28 @@ object knn_fix_ref(object address_num,PyObject* query_points_, int k,int cur_cap
     }
   }
   
+<<<<<<< HEAD
 
   knn_cuda_fix_ref(address_num_c,dist, ind,query_points_c, n_query, k,cur_capacity,dim);
 
 
+=======
+//printf("knn here is ok 1\n");
+//printf("knn before %d %d %d\n",ind[0],ind[1],ind[2]);
+knn_cuda_fix_ref(address_num_c,dist, ind,query_points_c, n_query, k,cur_capacity,dim);
+
+// printf("knn after %d %d %d\n",ind[0],ind[1],ind[2]);
+>>>>>>> 77781e86f48792f429abd667cea97c4aa6aaf2f3
   npy_intp dims[2] = {k, n_query};
   PyObject* py_obj_dist = PyArray_SimpleNewFromData(2, dims, NPY_FLOAT, dist);
   PyObject* py_obj_ind  = PyArray_SimpleNewFromData(2, dims, NPY_INT, ind);
   handle<> handle_dist(py_obj_dist);
   handle<> handle_ind(py_obj_ind);
+<<<<<<< HEAD
 
+=======
+//printf("knn here is ok 3\n");
+>>>>>>> 77781e86f48792f429abd667cea97c4aa6aaf2f3
   numeric::array arr_dist(handle_dist);
   numeric::array arr_ind(handle_ind);
 
@@ -142,8 +194,11 @@ object knn_fix_ref(object address_num,PyObject* query_points_, int k,int cur_cap
 
   return make_tuple(arr_dist.copy(), arr_ind.copy());
 }
+<<<<<<< HEAD
 
 
+=======
+>>>>>>> 77781e86f48792f429abd667cea97c4aa6aaf2f3
 int allocate(object size,object dims,object query_max,object k)
 {
   int size_c = extract<int>(size);
@@ -186,7 +241,10 @@ BOOST_PYTHON_MODULE(knn)
   import_array();
   numeric::array::set_module_and_type("numpy", "ndarray");
   def("knn", knn_fix_ref);
+<<<<<<< HEAD
   def("knn_conditional", knn_fix_ref_conditional);
+=======
+>>>>>>> 77781e86f48792f429abd667cea97c4aa6aaf2f3
   def("allocate", allocate);
   def("add", add);
   def("extract", extract_feature);

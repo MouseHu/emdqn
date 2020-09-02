@@ -92,6 +92,7 @@ def emb_dist(a, b):
     return tf.maximum(0., tf.reduce_sum(tf.squared_difference(a, b), axis=1))
 
 
+
 def contrastive_loss_fc(emb_cur, emb_next, emb_neg, margin=1, c_type='margin'):
     if c_type is None or c_type == 'origin':
         return tf.reduce_mean(
@@ -100,10 +101,12 @@ def contrastive_loss_fc(emb_cur, emb_next, emb_neg, margin=1, c_type='margin'):
         return tf.reduce_mean(emb_dist(emb_cur, emb_next) +
                               tf.maximum(0.,
                                          margin - emb_dist(emb_cur, emb_neg)))
+
     else:
         return tf.reduce_mean(emb_dist(emb_cur, emb_next) + tf.square(tf.maximum(0., margin -
                                                                                  tf.math.sqrt(
                                                                                      emb_dist(emb_cur,
+
                                                                                               emb_neg)))))
 
 
@@ -112,6 +115,7 @@ def build_train_contrast_target(input_type, obs_shape, model_func, num_actions, 
                                 scope="mfec",
                                 latent_dim=32, alpha=0.1, beta=1e9, theta=10, loss_type=["contrast"], knn=4,
                                 c_loss_type="margin", b=100, batch_size=32,
+
                                 reuse=None):
     """Creates the train function:
 
@@ -162,6 +166,7 @@ def build_train_contrast_target(input_type, obs_shape, model_func, num_actions, 
         # tau = tf.placeholder(tf.float32, [1], name='tau')
         # momentum = tf.placeholder(tf.float32, [1], name='momentum')
 
+
         # make_obs_ph = lambda name: input_type(obs_shape, batch_size, name=name),
         magic_num = tf.get_variable(name='magic', shape=[1])
         obs_input_query = U.ensure_tf_input(input_type(obs_shape, None, name="obs_query"))
@@ -175,6 +180,7 @@ def build_train_contrast_target(input_type, obs_shape, model_func, num_actions, 
         action_input = tf.placeholder(tf.int32, [batch_size], name="action")
         action_input_causal = tf.placeholder(tf.int32, [batch_size], name="action")
         reward_input_causal = tf.placeholder(tf.float32, [batch_size], name="action")
+
 
         inputs = [obs_input_query]
         if "contrast" in loss_type:
@@ -191,8 +197,10 @@ def build_train_contrast_target(input_type, obs_shape, model_func, num_actions, 
             inputs += [obs_input_neighbour, value_input_neighbour]
             if "regression" not in loss_type:
                 inputs += [value_input_query]
+
         if "causality" in loss_type:
             inputs += [reward_input_causal, action_input_causal]
+
         z_old = model_func(
             obs_input_query.get(), num_actions,
             scope="target_model_func",
@@ -243,6 +251,7 @@ def build_train_contrast_target(input_type, obs_shape, model_func, num_actions, 
         # fit_loss = tf.reduce_mean(tf.square(fit_value - value_input_query))
         fit_loss = tf.reduce_mean(tf.abs(fit_value - value_input_query))
 
+
         reward_input_causal = tf.reshape(reward_input_causal, [1, -1])
         reward_tile = tf.tile(reward_input_causal, [batch_size, 1])
         # reward_mask = (reward_tile - tf.transpose(reward_tile)) ** 2
@@ -258,6 +267,7 @@ def build_train_contrast_target(input_type, obs_shape, model_func, num_actions, 
         exp_distance = tf.exp(-distance)
         causal_find_rate = (tf.reduce_sum(total_mask) - batch_size) / (batch_size ** 2 - batch_size)
         causal_loss = tf.reduce_sum(tf.multiply(exp_distance, total_mask))
+
 
         regularization_loss = -tf.maximum(1., tf.reduce_mean(U.huber_loss(z_tar, 0.01)))
         regression_loss = tf.reduce_mean(
@@ -278,8 +288,10 @@ def build_train_contrast_target(input_type, obs_shape, model_func, num_actions, 
             total_loss += theta * model_loss
         if "fit" in loss_type:
             total_loss += beta * fit_loss
+
         if "causality" in loss_type:
             total_loss += theta * causal_loss
+
         model_func_vars = U.scope_vars(U.absolute_scope_name("model_func"))
         model_func_vars_update = copy.copy(model_func_vars)
         if "linear_model" in loss_type:
@@ -324,8 +336,10 @@ def build_train_contrast_target(input_type, obs_shape, model_func, num_actions, 
         z_neighbour_summary = tf.summary.scalar("z_neighbour_mean", tf.reduce_mean(z_neighbour))
         # fit_loss_summary = tf.summary.scalar("fit loss", tf.reduce_mean(fit_loss))
         # prediction_loss_summary = tf.summary.scalar("prediction loss", tf.reduce_mean(prediction_loss))
+
         causal_efficiency_summary = tf.summary.scalar("causal efficiency", causal_find_rate)
         causal_loss_summary = tf.summary.scalar("causal loss", causal_loss)
+
         total_loss_summary = tf.summary.scalar("total loss", tf.reduce_mean(total_loss))
 
         summaries = [z_var_summary, total_loss_summary, regularization_loss_summary]
@@ -345,9 +359,11 @@ def build_train_contrast_target(input_type, obs_shape, model_func, num_actions, 
             summaries.append(coeff_summary)
             summaries.append(square_dist_summary)
             summaries.append(z_neighbour_summary)
+
         if "causality" in loss_type:
             summaries.append(causal_efficiency_summary)
             summaries.append(causal_loss_summary)
+
         summary = tf.summary.merge(summaries)
         outputs = [total_loss, summary]
         train = U.function(

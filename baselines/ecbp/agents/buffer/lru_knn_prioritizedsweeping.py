@@ -132,36 +132,46 @@ class LRU_KNN_PRIORITIZEDSWEEPING(object):
         index_t, action_t, reward_t, z_tp1, done_t = sa_pair
         value_tp1 = np.nan_to_num(self.ec_buffer.state_value_u[index_tp1], copy=True)
         # value_tp1 = 0
+
         # self.log("ps update", index_t, action_t, count_t, reward_t + self.gamma * value_tp1,
         #          self.ec_buffer.external_value[index_t, action_t])
+
         # self.ec_buffer.external_value[index_t, action_t] = reward_t + self.gamma * value_tp1 * (1 - done_t)
         if np.isnan(self.ec_buffer.external_value[index_t, action_t]):
             self.ec_buffer.external_value[index_t, action_t] = 0
         self.ec_buffer.external_value[index_t, action_t] += 1 / count_t * (
                 reward_t + self.gamma * value_tp1 - self.ec_buffer.external_value[index_t, action_t])
+
         # self.log("u,v pre", self.ec_buffer.state_value_v[index_t], self.ec_buffer.state_value_u[index_t])
         # self.log("after ps update", self.ec_buffer.external_value[index_t, :])
         self.ec_buffer.state_value_v[index_t] = np.nanmax(self.ec_buffer.external_value[index_t, :])
         # self.log("u,v post", self.ec_buffer.state_value_v[index_t], self.ec_buffer.state_value_u[index_t])
+
         priority = abs(
             self.ec_buffer.state_value_v[index_t] - np.nan_to_num(self.ec_buffer.state_value_u[index_t], copy=True))
         if priority > 1e-7:
             self.queue_lock.acquire()
             self.pqueue.push(priority, index_t)
             self.queue_lock.release()
+
             # self.log("add queue", priority, len(self.pqueue))
+
         # self.iters_per_step = 0
         # self.update_enough.clear()
         return index_tp1
 
     def backup(self, ns, lock):
         # recursive backup
+
         # self.log("begin backup", self.run_sweep)
+
         ec_buffer = ns.ec_buffer
         pqueue = ns.pqueue
         while self.run_sweep:
             self.num_iters += 1
+
             # self.log("bk pqueue len", len(pqueue))
+
             if len(pqueue) > 0:
                 self.log("what is wrong?")
                 lock.acquire()
@@ -170,9 +180,11 @@ class LRU_KNN_PRIORITIZEDSWEEPING(object):
                 delta_u = ec_buffer.state_value_v[index] - np.nan_to_num(ec_buffer.state_value_u[index],
                                                                          copy=True)
                 ec_buffer.state_value_u[index] = ec_buffer.state_value_v[index]
+
                 # self.log("backup node", index, "priority", priority, "new value",
                 #          ec_buffer.state_value_v[index],
                 #          "delta", delta_u)
+
                 for sa_pair in ec_buffer.prev_id[index]:
                     state_tm1, action_tm1 = sa_pair
                     # self.log("update s,a,s',delta", state_tm1, action_tm1, index, delta_u)
@@ -187,7 +199,9 @@ class LRU_KNN_PRIORITIZEDSWEEPING(object):
                         lock.release()
             if self.num_iters % 100000 == 0:
                 self.log("backup count", self.num_iters)
+
         # self.log("finish backup", self.run_sweep)
+
 
     def peek(self, state):
         ind = self.ec_buffer.peek(state)

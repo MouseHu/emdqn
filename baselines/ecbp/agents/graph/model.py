@@ -138,7 +138,9 @@ def contrastive_model(img_in, num_actions, scope, reuse=False):
         out = layers.flatten(out)
 
         z = layers.fully_connected(out, num_outputs=32, activation_fn=tf.nn.tanh)
+
         normed_z = z / tf.maximum(1e-10, tf.norm(z, axis=1, keepdims=True))
+
         # print("normed_z:", normed_z.shape)
         # with tf.variable_scope("action_value"):
         #     v_h = layers.fully_connected(z, num_outputs=512, activation_fn=tf.nn.relu)
@@ -197,12 +199,15 @@ def representation_model_cnn(img_in, num_actions, scope, reuse=False):
         return z
 
 
+
+
 def representation_model_mlp(obs_in, num_actions, scope, reuse=False):
     """As described in https://storage.googleapis.com/deepmind-data/assets/papers/DeepMindNature14236Paper.pdf"""
     # obs_in = tf.reshape(obs_in, (-1,))
     with tf.variable_scope(scope, reuse=reuse):
         out = obs_in
         # coordinate = np.meshgrid()
+
 
         with tf.variable_scope("mlp"):
             #     # original architecture
@@ -213,6 +218,7 @@ def representation_model_mlp(obs_in, num_actions, scope, reuse=False):
         #
         out = layers.fully_connected(out, num_outputs=32, activation_fn=tf.nn.relu)
         z = layers.fully_connected(out, num_outputs=32, activation_fn=None)
+
         return z
 
 
@@ -315,6 +321,7 @@ def ib_dueling_model(img_in, num_actions, scope, reuse=False):
             action_scores = action_scores - tf.expand_dims(action_scores_mean, 1)
 
         return state_score + action_scores
+
 
 
 def unit_representation_model_cnn(img_in, num_actions, scope, reuse=False):
@@ -556,3 +563,4 @@ def mer_bvae_model(obs_in, noise, scope, reuse=False, use_mlp=False, normalize=F
         if normalize:
             z = z / tf.norm(z, axis=1, keepdims=True)
         return z, h_mean, h_logvar, attention, reconstruct, value
+

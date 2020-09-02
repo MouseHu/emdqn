@@ -1,14 +1,18 @@
 from pyvirtualdisplay import Display
 
+
 # display = Display(visible=1, size=(960, 640))
 # display.start()
+
 from baselines.ecbp.util import *
 from baselines.ecbp.agents.ecbp_agent import ECBPAgent
 from baselines.ecbp.agents.ps_agent import PSAgent
 from baselines.ecbp.agents.ps_mp_agent import PSMPAgent
 from baselines.ecbp.agents.ps_mp_learning_agent import PSMPLearnAgent
 from baselines.ecbp.agents.psmp_learning_target_agent import PSMPLearnTargetAgent
+
 from baselines.ecbp.agents.mer_attention_agent import MERAttentionAgent
+
 from baselines.ecbp.agents.kbps_mp_agent import KBPSMPAgent
 from baselines.ecbp.agents.ec_debug_agent import ECDebugAgent
 from baselines.ecbp.agents.kbps_agent import KBPSAgent
@@ -16,7 +20,9 @@ from baselines.ecbp.agents.ec_agent import ECAgent
 from baselines.ecbp.agents.human_agent import HumanAgent
 from baselines.ecbp.agents.hybrid_agent import HybridAgent, HybridAgent2
 from baselines.ecbp.agents.graph.build_graph_contrast_target import *
+
 from baselines.ecbp.test.buffer_test import buffertest
+
 import sys
 import logging
 
@@ -27,6 +33,7 @@ if __name__ == '__main__':
 
     args = parse_args()
     # if args.render:
+
     vars(args).update({'noise_size': 10})
     env = create_env(args)
     # env = GIFRecorder(video_path=args.video_path + "/{}/".format(args.comment), record_video=True, env=env)
@@ -43,6 +50,7 @@ if __name__ == '__main__':
         os.makedirs(agentdir)
     print(agentdir)
     tf_writer = tf.summary.FileWriter(tfdir, tf.get_default_graph())
+
     make_logger("ecbp", os.path.join(args.base_log_dir, args.log_dir, subdir, "logger.log"))
     make_logger("ec", os.path.join(args.base_log_dir, args.log_dir, subdir, "ec_logger.log"))
     exploration = PiecewiseSchedule([
@@ -51,8 +59,10 @@ if __name__ == '__main__':
         # (args.end_training+1, 1.0),
         # (args.end_training+1, 0.005),
         # (args.end_training + 10000, 1.0),
+
         (args.end_training + 100000, 0.2),
         (args.end_training + 200000, 0.1),
+
         # (approximate_num_iters / 5, 0.1),
         # (approximate_num_iters / 3, 0.01)
     ], outside_value=0.1)
@@ -61,6 +71,7 @@ if __name__ == '__main__':
     except AttributeError:
         num_actions = env.unwrapped.pseudo_action_space.n
 
+
     obs_shape = env.observation_space.shape
     print("here", env.observation_space)
     if obs_shape is None or obs_shape == (None,):
@@ -68,6 +79,7 @@ if __name__ == '__main__':
     if obs_shape is None or obs_shape == (None,):
         obs_shape = env.unwrapped.observation_space['images'].shape
     print("here", obs_shape)
+
     if type(obs_shape) is int:
         obs_shape = (obs_shape,)
 
@@ -76,6 +88,7 @@ if __name__ == '__main__':
     #                    args.buffer_size, num_actions, args.latent_dim, args.gamma, args.knn, tf_writer)
     # agent = ec_agent
     # ps_agent = ECDebugAgent(rp_model if args.rp else contrastive_model,
+
     ps_agent = MERAttentionAgent(
         representation_model_mlp if args.vector_input else representation_with_mask_model_cnn,
         # representation_model_mlp if args.vector_input else representation_model_cnn,
@@ -85,6 +98,7 @@ if __name__ == '__main__':
         args.buffer_size, num_actions, args.latent_dim, args.gamma, args.knn,
         args.eval_epsilon, args.queue_threshold, args.batch_size, args.density, args.trainable, args.negative_samples,
         tf_writer)
+
     # ps_agent = KBPSMPAgent(representation_model_mlp if args.vector_input else representation_model_cnn,
     #                                 # ps_agent = PSMPLearnTargetAgent(rp_model if args.rp else contrastive_model ,
     #                                 exploration,
@@ -113,6 +127,7 @@ if __name__ == '__main__':
         U.initialize()
         saver = tf.train.Saver()
 
+
         # initialize agent
         if args.load_dir is not None:
             agent.load(filedir=os.path.join(args.base_log_dir, args.load_dir), sess=sess, saver=saver,
@@ -120,6 +135,7 @@ if __name__ == '__main__':
             # agent.empty_buffer()
             agent.trainable = False
         # initialize parameter
+
         num_iters, eval_iters, num_episodes = 0, 0, 0
         non_discount_return, discount_return = [0.0], [0.0]
         non_discount_return_eval, discount_return_eval = [0.0], [0.0]
@@ -128,7 +144,9 @@ if __name__ == '__main__':
         eval_start_steps = 0
         steps_per_iter, iteration_time_est = RunningAvg(0.999, 1), RunningAvg(0.999, 1)
         obs = env.reset()
+
         print("in main", obs)
+
         print_flag = True
         # Main training loop
         train_time, act_time, env_time, update_time, cur_time = 0, 0, 0, 0, time.time()
@@ -153,6 +171,7 @@ if __name__ == '__main__':
             update_time += time.time() - cur_time
             cur_time = time.time()
 
+
             if num_iters % 10000 == 0:
                 # print(tf.global_variables())
                 # with tf.variable_scope("mfec", reuse=True):
@@ -161,6 +180,7 @@ if __name__ == '__main__':
                 # saver.save(sess, os.path.join(args.base_log_dir, args.log_dir,
                 #                               "./model/model{}_{}.ckpt".format(args.comment, num_iters)))
                 agent.save(agentdir, sess, saver)
+
             if eval:
                 non_discount_return_eval[-1] += rew
                 discount_return_eval[-1] += rew * args.gamma ** (eval_iters - start_steps)
@@ -186,8 +206,10 @@ if __name__ == '__main__':
                 iteration_time_est.update(time.time() - start_time)
             start_time = time.time()
 
+
             if num_iters > args.num_steps and done:
                 buffertest(agent, subdir)
+
                 agent.finish()
                 break
 

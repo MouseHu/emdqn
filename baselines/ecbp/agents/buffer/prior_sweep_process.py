@@ -97,15 +97,19 @@ class PriorSweepProcess(Process):
         # self.ec_buffer.external_value[index_t, action_t] = reward_t + self.gamma * value_tp1 * (1 - done_t)
         self.ec_buffer.external_value[index_t, action_t] += 1 / count_t * (
                 reward_t + self.gamma * value_tp1 - self.ec_buffer.external_value[index_t, action_t])
+
         # self.log("u,v pre", self.ec_buffer.state_value_v[index_t], self.ec_buffer.state_value_u[index_t])
         # self.log("after ps update", self.ec_buffer.external_value[index_t, :])
         self.ec_buffer.state_value_v[index_t] = np.nanmax(self.ec_buffer.external_value[index_t, :])
         # self.log("u,v post", self.ec_buffer.state_value_v[index_t], self.ec_buffer.state_value_u[index_t])
+
         priority = abs(
             self.ec_buffer.state_value_v[index_t] - np.nan_to_num(self.ec_buffer.state_value_u[index_t], copy=True))
         if priority > self.queue_threshold:
             self.pqueue.push(priority, index_t)
+
             # self.log("add queue", priority, len(self.pqueue))
+
         # self.iters_per_step = 0
         # self.update_enough.clear()
         assert index_tp1 != -1

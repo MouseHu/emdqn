@@ -43,14 +43,18 @@ class LRU_KNN_GPU_PS_DENSITY(object):
         # self.best_action = np.zeros((capacity, num_actions), dtype=np.int)
         self.curr_capacity = 0
         self.tm = 0.0
+
         self.threshold = 1e-4
+
         self.knn = knn
         self.gamma = gamma
         self.b = 1
         self.z_dim = z_dim
         # self.beta = beta
         batch_size = 32
+
         self.batch_size = batch_size
+
         self.address = knn_cuda_fixmem.allocate(capacity, z_dim, batch_size, knn * max(self.num_actions, 4))
         self.logger = logging.getLogger("ecbp")
 
@@ -101,9 +105,11 @@ class LRU_KNN_GPU_PS_DENSITY(object):
         self.log("key_norm in act value", key_norm)
         if len(key.shape) == 1:
             key = key[np.newaxis, ...]
+
         # dist, ind = knn_cuda_fixmem.knn(self.address, key, knn, int(self.curr_capacity))
         dist, ind = knn_cuda_fixmem.knn_conditional(self.address, key, copy.copy(self.newly_added), knn,
                                                     int(self.curr_capacity))
+
         dist, ind = np.transpose(dist), np.transpose(ind - 1)
         # print(dist.shape, ind.shape, len(key), key.shape)
         # print("nearest dist", dist[0][0])
@@ -229,9 +235,11 @@ class LRU_KNN_GPU_PS_DENSITY(object):
         # print(np.array(key).shape)
         if self.curr_capacity >= self.capacity:
             # find the LRU entry
+
             old_index = int(np.argmin(self.density + 2 * self.rmax * self.newly_added + self.lru * 0.1))
             self.log("density based cache index:", old_index, "density:", self.density[old_index])
             # old_index = np.random.randint(0,self.capacity)
+
             # deal with model
             for action in range(self.num_actions):
                 for successor in self.next_id[old_index][action].keys():
@@ -247,14 +255,18 @@ class LRU_KNN_GPU_PS_DENSITY(object):
                     print("backward", old_index, self.neighbour_backward[old_index])
                     print("forward", neighbour, self.neighbour_forward[neighbour])
                     raise SyntaxError
+
                 assert len(place) == 1, place
+
                 place = int(place)
                 self.neighbour_forward[neighbour].pop(place)
                 self.neighbour_dist_forward[neighbour].pop(place)
                 # print(self.neighbour_dist_forward[neighbour])
                 self.compute_density(neighbour)
             for neighbour in self.neighbour_forward[old_index]:
+
                 self.neighbour_backward[neighbour].remove(old_index)
+
 
             # clean buffer and then treat it like a new one
             self.density[old_index] = self.rmax
@@ -272,7 +284,9 @@ class LRU_KNN_GPU_PS_DENSITY(object):
             self.curr_capacity += 1
 
         if new_index in knn_ind:
+
             place = np.where(np.array(new_index) == knn_ind)[0]
+
             assert len(place) == 1, place
             place = int(place)
             knn_ind.pop(place)
@@ -301,8 +315,10 @@ class LRU_KNN_GPU_PS_DENSITY(object):
                     try:
                         self.neighbour_backward[ind_tmp].remove(ind)
                     except ValueError:
+
                         print(ind_tmp, self.neighbour_forward[ind])
                         print(ind, self.neighbour_backward[ind_tmp])
+
                         raise ValueError
                     self.neighbour_forward[ind][ind_max] = new_index
                     self.neighbour_dist_forward[ind][ind_max] = dist
@@ -331,7 +347,9 @@ class LRU_KNN_GPU_PS_DENSITY(object):
             self.external_value[state, action] = self.reward[state, action]
         self.external_value[state, action] += self.gamma * trans_p * delta_u
 
+
     def sample(self, sample_size, neg_num=1):
+
         sample_size = min(self.curr_capacity, sample_size)
         if sample_size % 2 == 1:
             sample_size -= 1
@@ -342,7 +360,9 @@ class LRU_KNN_GPU_PS_DENSITY(object):
         negatives = []
         values = []
         actions = []
+
         rewards = []
+
         while len(indexes) < sample_size:
             ind = int(np.random.randint(0, self.curr_capacity, 1))
             if ind in indexes:
@@ -356,6 +376,7 @@ class LRU_KNN_GPU_PS_DENSITY(object):
                 continue
             positive = next_id[np.random.randint(0, len(next_id))][1]
             action = next_id[np.random.randint(0, len(next_id))][0]
+
             reward = self.reward[ind, action]
             indexes.append(ind)
             positives.append(positive)
@@ -365,6 +386,7 @@ class LRU_KNN_GPU_PS_DENSITY(object):
 
         while len(negatives) < sample_size * neg_num:
             ind = indexes[len(negatives) // neg_num]
+
             neg_ind = int(np.random.randint(0, self.curr_capacity, 1))
             neg_ind_next = [[ind_tp1 for ind_tp1 in self.next_id[neg_ind][a].keys()] for a in range(self.num_actions)]
             ind_next = [[ind_tp1 for ind_tp1 in self.next_id[ind][a].keys()] for a in range(self.num_actions)]
@@ -381,7 +403,9 @@ class LRU_KNN_GPU_PS_DENSITY(object):
         # z_target = [self.states[ind] for ind in indexes]
         # z_pos = [self.states[pos] for pos in positives]
         # z_neg = [self.states[neg] for neg in negatives]
+
         return indexes, positives, negatives, rewards, values, actions, neighbours_index, neighbours_value
+
 
     def knn_index(self, index):
         assert self.knn + 1 < self.curr_capacity
@@ -398,6 +422,7 @@ class LRU_KNN_GPU_PS_DENSITY(object):
         for i, ind in enumerate(indexes):
             self.states[ind] = z_new[i]
             knn_cuda_fixmem.add(self.address, int(ind), np.array(z_new[i]).squeeze())
+
 
     def recompute_density(self):
         self.neighbour_backward = [[] for _ in range(self.capacity)]
@@ -425,3 +450,4 @@ class LRU_KNN_GPU_PS_DENSITY(object):
                 for ind in self.neighbour_forward[j]:
                     self.neighbour_backward[ind].append(j)
                 self.compute_density(j)
+

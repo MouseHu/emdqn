@@ -59,7 +59,9 @@ class MKEnv(object):
         assert 0 <= action <= 5
         self.step_count += 1
         delta_x = (action == 1) - (action == 3)
+
         delta_y = (self.flying == 0 and self.map_array[self.curr_state] == 2 and (action == 0)) - (
+
                 self.flying == 0 and self.map_array[self.curr_state] == 2 and (action == 2))
 
         if self.flying == 1:

@@ -26,6 +26,7 @@ class HybridAgent(object):
         self.agent1.observe(action, reward, obs, done, train)
         self.agent2.observe(action, reward, obs, done, train)
 
+
     def finish(self):
         pass
 
@@ -34,6 +35,7 @@ class HybridAgent2(object):
     agent1 : ai agent
     agent2 : human agent
     '''
+
     def __init__(self, agent1, agent2, episodes=20):
         # self.keyboard_config = keyboard_config
         self.agent1 = agent1
@@ -44,11 +46,13 @@ class HybridAgent2(object):
     def act(self, obs, is_train=True):
         # print("input action:",end=" ")
         if is_train and self.episode_count == 0:
+
             self.agent2.act(obs, is_train,debug=True)
             return self.agent1.act(obs, is_train)
         else:
             # self.agent1.act(obs, is_train)
             return self.agent2.act(obs, is_train)
+
         # return action
 
     def observe(self, action, reward, obs, done, train):
@@ -65,5 +69,7 @@ class HybridAgent2(object):
                     except:
                         self.episode_count = 0
 
+
     def finish(self):
         pass
+

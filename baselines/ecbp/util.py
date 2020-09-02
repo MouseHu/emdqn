@@ -6,17 +6,21 @@ from baselines.deepq.dqn_utils import *
 import baselines.common.tf_util as U
 import datetime
 
+
 from baselines import logger
 from baselines import deepq
 # from baselines.ecbp.env.d4rl_wrapper import D4RLDiscreteMazeEnvWrapper
+
 from baselines.ecbp.env.fourrooms import Fourrooms
 # from baselines.ecbp.env.tworooms import Tworooms
 from baselines.common.atari_wrappers_deprecated import FrameStack
 from baselines.common.atari_lib import MKPreprocessing
 from baselines.common.atari_lib import CropWrapper
 from baselines.common.atari_lib import NoisyEnv
+
 from baselines.ecbp.env.noisy_wrapper import StaticNoisyEnv,DynamicNoisyEnv
 from baselines.ecbp.env.noisy_wrapper import DiscreteWrapper
+
 from baselines.common.atari_lib import DoomPreprocessing
 # from baselines.doom.environment import DoomEnvironment
 from baselines.common.misc_util import (
@@ -41,6 +45,7 @@ from baselines.ecbp.agents.ec_agent import ECAgent
 from baselines.ecbp.agents.human_agent import HumanAgent
 from baselines.ecbp.agents.hybrid_agent import HybridAgent, HybridAgent2
 from baselines.ecbp.agents.graph.model import representation_model_cnn, representation_model_mlp, rp_model, \
+
     contrastive_model, unit_representation_model_cnn, unit_representation_model_mlp, \
     representation_with_mask_model_cnn,mer_bvae_model,bvae_encoder,bvae_decoder
 import logging
@@ -57,6 +62,7 @@ coinrun_game_versions = {
     'platform': 1001,
     'maze': 1002,
 }
+
 # from gym.wrappers.monitoring.video_recorder import VideoRecorder
 
 
@@ -66,18 +72,22 @@ def parse_args():
     parser.add_argument("--env", type=str, default="Atari", help="name of the game")
     parser.add_argument("--env_name", type=str, default="Pong", help="name of the game")
     parser.add_argument("--seed", type=int, default=int(time.time()), help="which seed to use")
+
     parser.add_argument("--gamma", type=float, default=0.99, help="which seed to use")
     parser.add_argument("--number", type=int, default=0, help="none")
+
     # Core DQN parameters
     parser.add_argument("--mode", type=str, default="max", help="mode of episodic memory")
     parser.add_argument("--buffer-size", type=int, default=int(1e6), help="replay buffer size")
     parser.add_argument("--lr", type=float, default=1e-4, help="learning6 rate for Adam optimizer")
+
     parser.add_argument("--amplify", type=float, default=1, help="amplifier for mujoco env")
     parser.add_argument("--num-steps", type=int, default=int(5e6),
                         help="total number of steps to run the environment for")
     parser.add_argument("--test-num-steps", type=int, default=int(4e5),
                         help="total number of steps to run the environment for in test")
     parser.add_argument("--negative-samples", type=int, default=4, help="numbers for negative samples")
+
     parser.add_argument("--batch-size", type=int, default=32,
                         help="number of transitions to optimize at the same time")
     parser.add_argument("--learning-freq", type=int, default=16,
@@ -85,11 +95,13 @@ def parse_args():
     parser.add_argument("--target-update-freq", type=int, default=5000,
                         help="number of iterations between every target network update")
     parser.add_argument("--knn", type=int, default=4, help="number of k nearest neighbours")
+
     parser.add_argument("--noise_dim", type=int, default=20, help="number of noisy dim")
     parser.add_argument("--noise_size", type=int, default=1, help="number of noisy dim")
     parser.add_argument("--noise_var", type=float, default=5, help="number of noisy var")
     parser.add_argument("--end_training", type=int, default=0, help="number of pretrain steps")
     parser.add_argument("--eval_epsilon", type=int, default=0.05, help="eval epsilon")
+
     parser.add_argument("--queue_threshold", type=int, default=1e-7, help="queue_threshold")
     parser.add_argument('--map_config', type=str,
                         help='The map and config you want to run in MonsterKong.',
@@ -116,18 +128,22 @@ def parse_args():
                         help="directory in which training state and model should be saved.")
     parser.add_argument("--log_dir", type=str, default="./tflogs",
                         help="directory in which training state and model should be saved.")
+
     parser.add_argument("--agent_dir", type=str, default="./agents/",
                         help="directory in which training state and model should be saved.")
     parser.add_argument("--load_dir", type=str, default=None,
                         help="directory in which training state and model should be saved.")
+
     boolean_flag(parser, "load-on-start", default=True,
                  help="if true and model was previously saved then training will be resumed")
 
     boolean_flag(parser, "learning", default=False,
                  help="if true and model was continued learned")
 
+
     boolean_flag(parser, "density", default=False,
                  help="if or not to use density  based update rule")
+
 
     boolean_flag(parser, "exploration", default=False,
                  help="if true and model was continued learned")
@@ -142,7 +158,9 @@ def parse_args():
     boolean_flag(parser, "debug", default=False, help="whether or not to output detail info")
     boolean_flag(parser, "vector_input", default=False, help="if env is vector input")
     boolean_flag(parser, "render", default=False, help="if render env")
+
     boolean_flag(parser, "trainable", default=True, help="whether or not to train latent")
+
     # EMDQN
     boolean_flag(parser, "train-latent", default=False, help="whether or not to further train latent")
     return parser.parse_args()
@@ -176,12 +194,14 @@ def create_env(args):
         from gym.envs.registration import register
 
         register(
+
             id='MonsterKong-v{}'.format(args.number),
             entry_point='baselines.ple.gym_env.monsterkong:MonsterKongEnv',
             kwargs={'map_config': map_config,'noise_size':args.noise_size},
         )
 
         env = gym.make('MonsterKong-v{}'.format(args.number))
+
         env = ProcessFrame(env)
         env = MKPreprocessing(env, frame_skip=3, no_jump=True)
     elif args.env == "GW" or args.env == "gw":
@@ -207,13 +227,17 @@ def create_env(args):
         from gym.envs.registration import register
         goal_args = [[0.0, 16.0], [0 + 1e-3, 16 + 1e-3], [0.0, 6.0], [15 + 1e-3, 10 + 1e-3]]
         random_start = False
+
         # The episode  length for test is 500
+
         max_timestep = 500
         register(
             id='PointMazeTest-v10',
             entry_point='mujoco.create_maze_env:create_maze_env',
             kwargs={'env_name': 'DiscretePointBlock', 'goal_args': goal_args, 'maze_size_scaling': 4,
+
                     'random_start': random_start, 'env_args': {'amplify': args.amplify}},
+
             max_episode_steps=max_timestep,
         )
         env = gym.make('PointMazeTest-v10')
@@ -221,6 +245,7 @@ def create_env(args):
         game_version = 'v0'
         env = gym.make('{}-{}'.format(args.env_name, game_version))
         env = NoisyEnv(env, args.noise_dim, args.noise_var)
+
 
     elif args.env == "noise_mujoco" or args.env == "mujoco_noise":
         from gym.envs.registration import register
@@ -263,6 +288,7 @@ def create_env(args):
     #
     #     if "maze" in args.env_name:
     #         env = D4RLDiscreteMazeEnvWrapper(env)
+
 
     else:
         raise NotImplementedError
@@ -312,7 +338,9 @@ def make_agent(args, env, tf_writer):
     agent = agent_func(representation_model_mlp if args.rp else representation_model_cnn, exploration,
                        obs_shape, input_type,
                        args.lr,
+
                        args.buffer_size, num_actions, args.latent_dim,args.gamma, args.knn,
+
                        args.eval_epsilon, args.queue_threshold, args.batch_size,
                        tf_writer)
     return agent

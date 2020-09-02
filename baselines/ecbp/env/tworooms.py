@@ -5,7 +5,9 @@ from gym import error, spaces
 from gym import core, spaces
 from gym.envs.registration import register
 import random
+
 from baselines.ecbp.env import rendering
+
 # resultList = random.sample(range(15, 300 + 15), 104)
 
 
@@ -60,7 +62,9 @@ class Tworooms(gym.Env):
         self.num_steps = 0
 
         self.block_size = 20
+
         self.viewer = rendering.Viewer(self.block_size * len(self.occupancy), self.block_size * len(self.occupancy[0]))
+
         self.blocks = self.make_blocks()
 
     def set_state(self,s):
@@ -107,7 +111,9 @@ class Tworooms(gym.Env):
         size = self.block_size
         v = [[x * size, y * size], [x * size, (y + 1) * size], [(x + 1) * size, (y + 1) * size],
              [(x + 1) * size, y * size]]
+
         geom = rendering.make_polygon(v, filled=True)
+
         r, g, b = color
         geom.set_color(r, g, b)
         self.viewer.add_onetime(geom)
@@ -120,7 +126,9 @@ class Tworooms(gym.Env):
                 if o == 1 or o == 2:
                     v = [[j * size, i * size], [j * size, (i + 1) * size], [(j + 1) * size, (i + 1) * size],
                          [(j + 1) * size, (i) * size]]
+
                     geom = rendering.make_polygon(v, filled=True)
+
                     if o == 1:
                         geom.set_color(0, 0, 0)
                     elif o == 2:

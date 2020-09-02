@@ -227,8 +227,10 @@ if __name__ == '__main__':
         qec_found = 0
         sequence = []
 
+
         tfout = open(
             './results/result_%s_contrast_%s' % (args.env, args.comment), 'w+')
+
 
 
         def act_baseline(z, stochastic=0, update_eps=-1):

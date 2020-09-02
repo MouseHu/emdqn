@@ -98,7 +98,9 @@ class KBPSMPAgent(object):
         if train:
             self.ind = self.send_and_receive(2, (self.ind, action, reward, z_tp1, done))
         else:
+
             self.ind= -1
+
             # self.ind = self.send_and_receive(1, np.array([z_tp1]))
 
             # self.ind = self.send_and_receive(1, (np.array([z_tp1]), None))

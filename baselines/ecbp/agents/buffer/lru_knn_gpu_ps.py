@@ -45,6 +45,7 @@ class LRU_KNN_GPU_PS(object):
         self.b = 1
         self.z_dim = z_dim
         # self.beta = beta
+
         self.batch_size = 32
         self.address = None
         self.allocate()
@@ -52,6 +53,7 @@ class LRU_KNN_GPU_PS(object):
 
     def allocate(self):
         self.address = knn_cuda_fixmem.allocate(self.capacity, self.z_dim, 32, self.knn * self.num_actions)
+
 
     def log(self, *args, logtype='debug', sep=' '):
         getattr(self.logger, logtype)(sep.join(str(a) for a in args))
@@ -99,12 +101,14 @@ class LRU_KNN_GPU_PS(object):
         self.log("key_norm in act value", key_norm)
         if len(key.shape) == 1:
             key = key[np.newaxis, ...]
+
         # dist, ind = knn_cuda_fixmem.knn_conditional(self.address, key, copy.copy(self.newly_added), knn,
         #                                             int(self.curr_capacity))
         dist, ind = knn_cuda_fixmem.knn(self.address, key, knn, int(self.curr_capacity))
         dist, ind = np.transpose(dist), np.transpose(ind - 1)
         # print(dist.shape, ind.shape, len(key), key.shape)
         self.log("nearest dist", dist[0][0])
+
         external_value = np.zeros(self.num_actions)
         external_nan_mask = np.full((self.num_actions,), np.nan)
         internal_value = self.rmax * np.ones(self.num_actions)
@@ -112,6 +116,7 @@ class LRU_KNN_GPU_PS(object):
         ind_new, dist_new = ind[old_mask], dist[old_mask]
         if len(dist_new) == 0:
             self.log("no old node", logtype='info')
+
             self.log("total old node", self.capacity - np.sum(self.newly_added), logtype='info')
             self.log(dist, logtype='info')
             internal_values.append(self.rmax * np.ones(self.num_actions))
@@ -124,6 +129,7 @@ class LRU_KNN_GPU_PS(object):
             self.log("compute coeff", np.array(dist), ind, len(dist), dist.shape)
             if np.sum(dist) < 1e-12:
                 self.log("same key", key)
+
             coeff = -dist[i] / self.b
             coeff = coeff - np.max(coeff)
             coeff = np.exp(coeff)
@@ -137,11 +143,13 @@ class LRU_KNN_GPU_PS(object):
                 # external_value[np.isnan(external_value)] = 0
                 self.lru[ind[i][0]] = self.tm
                 self.tm += 0.01
+
                 neighbours.append([ind[i][0]])
             else:
                 exact_refer.append(False)
                 self.log("inexact refer", ind[i][0], dist[i][0])
                 self.log("coeff", coeff)
+
                 for j, index in enumerate(ind[i]):
                     tmp_external_value = copy.deepcopy(self.external_value[index, :])
                     self.log("temp external value", self.external_value[index, :])
@@ -151,11 +159,13 @@ class LRU_KNN_GPU_PS(object):
                     self.lru[index] = self.tm
                     self.tm += 0.01
                 external_value += external_nan_mask
+
                 neighbours.append(ind[i])
             external_values.append(external_value)
             internal_values.append(internal_value)
 
         return external_values, internal_values, np.array(exact_refer), ind
+
 
     def act_value_ec(self, key, knn):
         knn = min(self.curr_capacity // self.num_actions, knn)
@@ -195,9 +205,11 @@ class LRU_KNN_GPU_PS(object):
                 coeff = coeff / np.sum(coeff)
                 external_value[a] = np.dot(external_values_column[:knn_a], coeff)
                 self.log("knn_a", knn_a, a)
+
                 self.log("column", external_values_column[:knn_a])
                 self.log("dist", external_values_dist[:knn_a])
                 self.log("coeff", coeff)
+
 
         return [external_value], [internal_value], exact_refer
 
@@ -220,7 +232,9 @@ class LRU_KNN_GPU_PS(object):
         self.done[src, action] = done
         return sum(self.next_id[src][action].values())
 
+
     def add_node(self, key, knn_dist=[], knn_ind=[]):
+
         # print(np.array(key).shape)
         if self.curr_capacity >= self.capacity:
             # find the LRU entry
@@ -262,6 +276,7 @@ class LRU_KNN_GPU_PS(object):
     def update_q_value(self, state, action, state_tp1, delta_u):
         successor_states = self.next_id[state][action].keys()
         weight = {s: self.next_id[state][action][s] for s in successor_states}
+
         count_sum = sum(weight.values())
         trans_p = weight[state_tp1] / count_sum
         assert 0 <= trans_p <= 1
@@ -281,6 +296,7 @@ class LRU_KNN_GPU_PS(object):
             self.external_value[state, action] += self.gamma * trans_p * self.state_value_u[s]
 
     def sample(self, sample_size, neg_num=1):
+
         sample_size = min(self.curr_capacity, sample_size)
         if sample_size % 2 == 1:
             sample_size -= 1
@@ -291,7 +307,9 @@ class LRU_KNN_GPU_PS(object):
         negatives = []
         values = []
         actions = []
+
         rewards = []
+
         while len(indexes) < sample_size:
             ind = int(np.random.randint(0, self.curr_capacity, 1))
             if ind in indexes:
@@ -305,6 +323,7 @@ class LRU_KNN_GPU_PS(object):
                 continue
             positive = next_id[np.random.randint(0, len(next_id))][1]
             action = next_id[np.random.randint(0, len(next_id))][0]
+
             reward = self.reward[ind, action]
             indexes.append(ind)
             positives.append(positive)
@@ -314,6 +333,7 @@ class LRU_KNN_GPU_PS(object):
 
         while len(negatives) < sample_size * neg_num:
             ind = indexes[len(negatives) // neg_num]
+
             neg_ind = int(np.random.randint(0, self.curr_capacity, 1))
             neg_ind_next = [[ind_tp1 for ind_tp1 in self.next_id[neg_ind][a].keys()] for a in range(self.num_actions)]
             ind_next = [[ind_tp1 for ind_tp1 in self.next_id[ind][a].keys()] for a in range(self.num_actions)]
@@ -330,7 +350,9 @@ class LRU_KNN_GPU_PS(object):
         # z_target = [self.states[ind] for ind in indexes]
         # z_pos = [self.states[pos] for pos in positives]
         # z_neg = [self.states[neg] for neg in negatives]
+
         return indexes, positives, negatives, rewards, values, actions, neighbours_index, neighbours_value
+
 
     def knn_index(self, index):
         assert self.knn + 1 < self.curr_capacity
@@ -342,11 +364,15 @@ class LRU_KNN_GPU_PS(object):
 
     def update(self, indexes, z_new):
         self.log("update in buffer", self.curr_capacity)
+
         assert len(indexes) == len(z_new), "{} {}".format(len(indexes), len(z_new))
+
         assert z_new.shape[1] == self.z_dim
         for i, ind in enumerate(indexes):
             self.states[ind] = z_new[i]
             knn_cuda_fixmem.add(self.address, int(ind), np.array(z_new[i]).squeeze())
 
+
     def recompute_density(self):
         pass
+

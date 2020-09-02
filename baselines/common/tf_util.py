@@ -172,7 +172,9 @@ class Uint8Input(PlacholderTfInput):
         return self._output
 
 class Float32Input(PlacholderTfInput):
+
     def __init__(self, shape, batch_size=None,name=None):
+
         """Takes input in uint8 format which is cast to float32 and divided by 255
         before passing it to the model.
 
@@ -186,7 +188,9 @@ class Float32Input(PlacholderTfInput):
             name of the underlying placeholder
         """
 
+
         super().__init__(tf.placeholder(tf.float32, [batch_size] + list(shape), name=name))
+
         self._shape = shape
         self._output = tf.cast(super().get(), tf.float32)
 

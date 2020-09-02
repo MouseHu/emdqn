@@ -1,4 +1,5 @@
 import numpy as np
+
 import tensorflow as tf
 from pyvirtualdisplay import Display
 from sklearn.manifold import TSNE
@@ -54,3 +55,4 @@ def buffertest(agent,comment="None"):
     plt.colorbar()
     plt.savefig("./plot/{}-3.png".format(comment))
     plt.show()
+
