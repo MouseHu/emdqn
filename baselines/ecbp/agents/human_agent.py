@@ -14,5 +14,5 @@ class HumanAgent(object):
         print(" ")
         return action
 
-    def observe(self, action, reward, obs, done, train):
+    def observe(self, action, reward, obs, done, train=True):
         pass

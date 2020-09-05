@@ -41,7 +41,7 @@ class HybridAgent2(object):
         self.agent1 = agent1
         self.agent2 = agent2
         self.episodes = episodes
-        self.episode_count = 1
+        self.episode_count = 0
 
     def act(self, obs, is_train=True):
         # print("input action:",end=" ")

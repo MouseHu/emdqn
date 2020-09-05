@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt
 import pickle as pkl
 import os
 
-
+from baselines.ecbp.agents.graph.graph_util import *
 
 class PSMPLearnTargetAgent(object):
     def __init__(self, model_func, exploration_schedule, obs_shape, vector_input=True, lr=1e-4, buffer_size=1000000,
@@ -86,7 +86,9 @@ class PSMPLearnTargetAgent(object):
 
         )
         self.finds = [0, 0]
-
+        self.contrast_type = "both"
+        self.augment_input_func, self.rand_init_func = build_random_input(input_type=input_type,
+                                                                          obs_shape=obs_shape)
         self.ec_buffer.start()
 
     def log(self, *args, logtype='debug', sep=' '):
@@ -107,7 +109,7 @@ class PSMPLearnTargetAgent(object):
         self.send_and_receive(10, filedir)
         replay_buffer_file = open(os.path.join(filedir, "replay_buffer.pkl"), "wb")
         if np.size(self.replay_buffer)< 1024*1024*1024:
-            pkl.dump((self.steps, self.replay_buffer, self.buffer_capacity), replay_buffer_file)
+            pkl.dump((self.steps, self.replay_buffer, self.cur_capacity), replay_buffer_file)
         else:
             pkl.dump((self.steps, self.buffer_capacity), replay_buffer_file)
         model_file = os.path.join(filedir, "model_{}.pkl".format(self.steps))
@@ -118,11 +120,14 @@ class PSMPLearnTargetAgent(object):
         if os.path.exists(os.path.join(filedir, "replay_buffer.pkl")):
             replay_buffer_file = open(os.path.join(filedir, "replay_buffer.pkl"), "rb")
             try:
-                self.steps, self.replay_buffer, self.buffer_capacity = pkl.load(replay_buffer_file)
+                self.steps, self.replay_buffer, self.cur_capacity = pkl.load(replay_buffer_file)
             except ValueError:
                 replay_buffer_file = open(os.path.join(filedir, "replay_buffer.pkl"), "rb")
                 self.steps, self.buffer_capacity = pkl.load(replay_buffer_file)
         model_file = os.path.join(filedir, "model_{}.pkl".format(num_steps))
+        for var_name, _ in tf.contrib.framework.list_variables(
+                filedir):
+            print(var_name)
         saver.restore(sess, model_file)
 
     def train(self):
@@ -139,14 +144,27 @@ class PSMPLearnTargetAgent(object):
             return
 
         obs_tar = [self.replay_buffer[ind] for ind in index_tar]
-        obs_pos = [self.replay_buffer[ind] for ind in index_pos]
+        # obs_pos = [self.replay_buffer[ind] for ind in index_pos]
         obs_neg = [self.replay_buffer[ind] for ind in index_neg]
         obs_neighbour = [self.replay_buffer[ind] for ind in neighbours_index]
 
         obs_u = [self.replay_buffer[ind] for ind in index_u]
         obs_v = [self.replay_buffer[ind] for ind in index_v]
         # print(obs_tar[0].shape)
-
+        if self.contrast_type == "predictive":
+            obs_pos = [self.replay_buffer[ind] for ind in index_pos]
+        elif self.contrast_type == "augment":
+            self.rand_init_func()
+            obs_pos = self.augment_input_func(self.replay_buffer[index_tar])[0]
+        elif self.contrast_type == "both":  # mixture
+            self.rand_init_func()
+            augment_inds = np.random.choice(self.batch_size, self.batch_size // 2)
+            obs_pos = np.array([self.replay_buffer[ind] for ind in index_pos])
+            obs_pos_augment = self.augment_input_func(self.replay_buffer[index_tar])[0]
+            obs_pos[augment_inds] = obs_pos_augment[augment_inds]
+        else:
+            obs_pos =None
+            raise NotImplementedError
         if "regression" in self.loss_type:
             value_original = self.norm_func(np.array(obs_tar))
             value_tar = np.array(value_tar)
@@ -228,6 +246,7 @@ class PSMPLearnTargetAgent(object):
         # self.steps += 1
         epsilon = max(0, self.exploration_schedule.value(self.steps)) if is_train else self.eval_epsilon
         if np.random.random() < epsilon:
+            self.log("Random action")
             action = np.random.randint(0, self.num_actions)
             return action
         else:
@@ -235,7 +254,10 @@ class PSMPLearnTargetAgent(object):
 
             extrinsic_qs, intrinsic_qs, find,inds = self.send_and_receive(0, (np.array([self.z]), None, self.knn))
             extrinsic_qs, intrinsic_qs = np.array(extrinsic_qs), np.array(intrinsic_qs)
+            inds = np.array(inds).reshape(-1)
+            # print("debug? ",len(inds),debug)
             if len(inds) > 1 and debug:
+                print("saving neightbour")
                 self.save_neighbour(inds)
             self.finds[0] += sum(find)
             self.finds[1] += 1
@@ -252,6 +274,8 @@ class PSMPLearnTargetAgent(object):
                 max_action = np.arange(self.num_actions)
             else:
                 max_action = np.where(q >= q_max - 1e-7)[0]
+            # print("action selection", max_action)
+            # print("q", q, q_max)
             self.log("action selection", max_action)
             self.log("q", q, q_max)
             action_selected = np.random.randint(0, len(max_action))
@@ -265,7 +289,7 @@ class PSMPLearnTargetAgent(object):
 
         for ind in inds:
             assert 0<= ind < self.cur_capacity
-            cv2.imwrite(os.path.join(save_path,"{}.png".format(ind)),self.replay_buffer[ind])
+            cv2.imwrite(os.path.join(save_path,"{}.png".format(ind)),self.replay_buffer[ind].transpose(1,0,2))
 
     def empty_buffer(self):
         self.cur_capacity = 0

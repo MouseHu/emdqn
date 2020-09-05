@@ -45,9 +45,8 @@ from baselines.ecbp.agents.ec_agent import ECAgent
 from baselines.ecbp.agents.human_agent import HumanAgent
 from baselines.ecbp.agents.hybrid_agent import HybridAgent, HybridAgent2
 from baselines.ecbp.agents.graph.model import representation_model_cnn, representation_model_mlp, rp_model, \
-
-    contrastive_model, unit_representation_model_cnn, unit_representation_model_mlp, \
-    representation_with_mask_model_cnn,mer_bvae_model,bvae_encoder,bvae_decoder
+contrastive_model, unit_representation_model_cnn, unit_representation_model_mlp, \
+representation_with_mask_model_cnn,mer_bvae_model,bvae_encoder,bvae_decoder
 import logging
 from dreamer import tasks as dreamer_tasks
 from coinrun.coinrun.main_utils import make_general_env as make_coinrun_env

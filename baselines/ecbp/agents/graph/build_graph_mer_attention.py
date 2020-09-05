@@ -231,6 +231,7 @@ def build_train_mer_attention(input_type, obs_shape, model_func, num_actions, op
         magic_num = tf.get_variable(name='magic', shape=[1])
         obs_input_query = U.ensure_tf_input(input_type(obs_shape, None, name="obs_query"))
 
+        obs_input_attention = U.ensure_tf_input(input_type(obs_shape, None, name="obs_attention"))
         obs_input_positive = U.ensure_tf_input(input_type(obs_shape, batch_size, name="enc_obs_pos"))
         obs_input_negative = U.ensure_tf_input(input_type(obs_shape, batch_size * num_neg, name="enc_obs_neg"))
         obs_input_neighbour = U.ensure_tf_input(input_type(obs_shape, batch_size * knn, name="enc_obs_neighbour"))
@@ -244,7 +245,7 @@ def build_train_mer_attention(input_type, obs_shape, model_func, num_actions, op
         value_input_weighted_product_u = tf.placeholder(tf.float32, [batch_size], name="value_u")
         value_input_weighted_product_v = tf.placeholder(tf.float32, [batch_size], name="value_v")
 
-        value_input_query = tf.placeholder(tf.float32, [batch_size], name="value")
+        value_input_attention = tf.placeholder(tf.float32, [batch_size], name="value")
         value_input_neighbour = tf.placeholder(tf.float32, [batch_size, knn], name="neighbour_value")
         action_embedding = tf.Variable(tf.random_normal([num_actions, latent_dim], stddev=1), name="action_embedding")
         action_input = tf.placeholder(tf.int32, [batch_size], name="action")
@@ -255,7 +256,7 @@ def build_train_mer_attention(input_type, obs_shape, model_func, num_actions, op
         if "contrast" in loss_type:
             inputs += [obs_input_positive, obs_input_negative]
         if "regression" in loss_type:
-            inputs += [value_input_query]
+            inputs += [value_input_attention]
         if "linear_model" in loss_type:
             inputs += [action_input]
             if "contrast" not in loss_type:
@@ -265,14 +266,14 @@ def build_train_mer_attention(input_type, obs_shape, model_func, num_actions, op
             #     inputs+=[]
             inputs += [obs_input_neighbour, value_input_neighbour]
             if "regression" not in loss_type:
-                inputs += [value_input_query]
+                inputs += [value_input_attention]
         if "weight_product" in loss_type:
             inputs += [obs_input_uniformity_u, obs_input_uniformity_v, obs_input_weighted_product_u,
                        obs_input_weighted_product_v, value_input_weighted_product_u, value_input_weighted_product_v]
         if "causality" in loss_type:
             inputs += [reward_input_causal, action_input_causal]
         if "attention" in loss_type:
-            inputs += [value_input_query]
+            inputs += [obs_input_attention,value_input_attention]
 
         _, _, z_old, h_old = model_func(
             obs_input_query.get(), num_actions,
@@ -281,6 +282,11 @@ def build_train_mer_attention(input_type, obs_shape, model_func, num_actions, op
 
         attention, value_predict, z, h = model_func(
             obs_input_query.get(), num_actions,
+            scope="model_func",
+            reuse=tf.AUTO_REUSE)
+
+        attention_train, value_predict_train, _, _ = model_func(
+            obs_input_attention.get(), num_actions,
             scope="model_func",
             reuse=tf.AUTO_REUSE)
 
@@ -332,7 +338,7 @@ def build_train_mer_attention(input_type, obs_shape, model_func, num_actions, op
         coeff_sum = tf.reduce_mean(tf.reduce_sum(neighbour_coeff, axis=1))
         value_input_neighbour_mean = tf.reduce_mean(value_input_neighbour)
         fit_value = tf.reduce_sum(tf.multiply(neighbour_coeff, value_input_neighbour), axis=1)
-        fit_loss = tf.reduce_mean(tf.abs(fit_value - value_input_query))
+        fit_loss = tf.reduce_mean(tf.abs(fit_value - value_input_attention))
 
         # causality loss
         reward_input_causal = tf.reshape(reward_input_causal, [1, -1])
@@ -353,7 +359,7 @@ def build_train_mer_attention(input_type, obs_shape, model_func, num_actions, op
         # regularization loss
         regularization_loss = -tf.maximum(1., tf.reduce_mean(U.huber_loss(z_tar, 0.01)))
         regression_loss = tf.reduce_mean(
-            tf.squared_difference(tf.norm(z_tar, axis=1), alpha * value_input_query)) + regularization_loss
+            tf.squared_difference(tf.norm(z_tar, axis=1), alpha * value_input_attention)) + regularization_loss
 
         # linear model loss
         action_embeded = tf.matmul(tf.one_hot(action_input, num_actions), action_embedding)
@@ -369,20 +375,20 @@ def build_train_mer_attention(input_type, obs_shape, model_func, num_actions, op
 
         # attention loss
 
-        attention_flatten = tf.layers.flatten(attention)
+        attention_flatten = tf.layers.flatten(attention_train)
         # minimize activated area
         print("attention shape", attention_flatten.shape)
         num_pixel = int(attention_flatten.shape[-1])
         encoder_loss_var = -reduce_std(attention_flatten, axis=1)
         # encoder_loss_mean = 1. / num_pixel * tf.maximum(tf.norm(attention_flatten, ord=1, axis=1), 0.2 * num_pixel)
-        # encoder_loss_mean = 1. / num_pixel * tf.norm(attention_flatten, ord=1, axis=1)
+        # encoder_loss_mean = 1. / num_pixel * tf.norm(attention_flatten, ord=2, axis=1)
         encoder_loss_mean = tf.maximum(tf.reduce_mean(tf.square(attention_flatten), axis=1), 0.2)
         # encoder_loss = tf.reduce_mean(tf.exp(-tf.abs(attention_flatten - 0.5)),axis=1)
         # encoder_loss = tf.norm(attention_flatten, ord=1, axis=1)/num_pixel
         encoder_loss = encoder_loss_mean + 1e-5 * encoder_loss_var
         # print("encoder loss  shape", encoder_loss.shape)
         # be predictive w.r.t value
-        decoder_loss = tf.reduce_mean(tf.square(value_predict - value_input_query), axis=1)
+        decoder_loss = tf.reduce_mean(tf.square(value_predict_train - value_input_attention), axis=1)
         attention_loss = tf.reduce_mean(decoder_loss + encoder_loss)
 
         total_loss = 0
@@ -484,7 +490,7 @@ def build_train_mer_attention(input_type, obs_shape, model_func, num_actions, op
             # summaries.append(reward_mask_summary)
             # summaries.append(action_mask_summary)
         if "weight_product" in loss_type:
-            summaries.ap+pend(uniformity_loss_summary)
+            summaries.append(uniformity_loss_summary)
             summaries.append(wp_loss_summary)
         if "attention" in loss_type:
             summaries.append(encoder_loss_summary)

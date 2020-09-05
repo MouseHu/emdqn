@@ -31,7 +31,7 @@ if __name__ == '__main__':
     vars(args).update({'noise_size': 1})
     train_env = create_env(args)
     vars(args).update({'number': 2})
-    # vars(args).update({'env_name': "large_2"})
+    # vars(args).update({'env_name': "hard"})
     vars(args).update({'noise_size': 10})
 
     test_env = create_env(args)

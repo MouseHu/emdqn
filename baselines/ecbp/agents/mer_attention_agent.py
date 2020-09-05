@@ -27,9 +27,9 @@ class MERAttentionAgent(PSMPLearnTargetAgent):
     def __init__(self, model_func, exploration_schedule, obs_shape, vector_input=True, lr=1e-4, buffer_size=1000000,
                  num_actions=6, latent_dim=32,
                  gamma=0.99, knn=4, eval_epsilon=0.1, queue_threshold=5e-5, batch_size=32, density=True, trainable=True,
-                 num_neg=10, debug=False,debug_dir = None,tf_writer=None):
+                 num_neg=10, debug=False, debug_dir=None, tf_writer=None):
 
-        self.debug=debug
+        self.debug = debug
         self.debug_dir = debug_dir
         self.obs_shape = obs_shape
         self.conn, child_conn = Pipe()
@@ -70,7 +70,8 @@ class MERAttentionAgent(PSMPLearnTargetAgent):
             obs_shape=obs_shape,
             model_func=model_func,
             num_actions=num_actions,
-            optimizer=tf.train.AdamOptimizer(learning_rate=lr, epsilon=1e-4),
+            # optimizer=tf.train.AdamOptimizer(learning_rate=lr, epsilon=1e-4),
+            optimizer=tf.train.GradientDescentOptimizer(learning_rate=lr),
             gamma=gamma,
             grad_norm_clipping=10,
             latent_dim=latent_dim,
@@ -80,8 +81,8 @@ class MERAttentionAgent(PSMPLearnTargetAgent):
             c_loss_type="infonce",
         )
         self.contrast_type = "predictive"
-        self.augment_input_func,self.rand_init_func = build_random_input(input_type=input_type,
-                                                     obs_shape=obs_shape)
+        self.augment_input_func, self.rand_init_func = build_random_input(input_type=input_type,
+                                                                          obs_shape=obs_shape)
         self.finds = [0, 0]
 
         self.ec_buffer.start()
@@ -90,31 +91,37 @@ class MERAttentionAgent(PSMPLearnTargetAgent):
         # sample
         # self.log("begin training")
 
-        samples = self.send_and_receive(4, (self.batch_size, self.num_neg))
-        samples_u = self.send_and_receive(4, (self.batch_size, self.num_neg))
-        samples_v = self.send_and_receive(4, (self.batch_size, self.num_neg))
+        samples = self.send_and_receive(4, (self.batch_size, self.num_neg, 'uniform'))
+        samples_u = self.send_and_receive(4, (self.batch_size, self.num_neg, 'uniform'))
+        samples_v = self.send_and_receive(4, (self.batch_size, self.num_neg, 'uniform'))
+        samples_attention = self.send_and_receive(4, (self.batch_size, self.num_neg, 'uniform'))
         index_u, _, _, _, value_u, _, _, _ = samples_u
         index_v, _, _, _, value_v, _, _, _ = samples_v
         index_tar, index_pos, index_neg, reward_tar, value_tar, action_tar, neighbours_index, neighbours_value = samples
+        index_tar_attention, _, _, _, value_tar_attention, _, _, _ = samples_attention
         if len(index_tar) < self.batch_size:
             return
         obs_tar = [self.replay_buffer[ind] for ind in index_tar]
+        obs_tar_attention = [self.replay_buffer[ind] for ind in index_tar_attention]
         obs_neg = [self.replay_buffer[ind] for ind in index_neg]
         obs_neighbour = [self.replay_buffer[ind] for ind in neighbours_index]
         obs_u = [self.replay_buffer[ind] for ind in index_u]
         obs_v = [self.replay_buffer[ind] for ind in index_v]
 
-        if self.contrast_type == "both":
+        if self.contrast_type == "predictive":
             obs_pos = [self.replay_buffer[ind] for ind in index_pos]
         elif self.contrast_type == "augment":
             self.rand_init_func()
             obs_pos = self.augment_input_func(self.replay_buffer[index_tar])[0]
-        else:  # mixture
+        elif self.contrast_type == "both":  # mixture
             self.rand_init_func()
             augment_inds = np.random.choice(self.batch_size, self.batch_size // 2)
             obs_pos = np.array([self.replay_buffer[ind] for ind in index_pos])
             obs_pos_augment = self.augment_input_func(self.replay_buffer[index_tar])[0]
             obs_pos[augment_inds] = obs_pos_augment[augment_inds]
+        else:
+            # obs_pos = None
+            raise NotImplementedError
 
         # print(obs_tar[0].shape)
         if "regression" in self.loss_type:
@@ -148,11 +155,11 @@ class MERAttentionAgent(PSMPLearnTargetAgent):
             value_v = np.nan_to_num(np.array(value_v))
             input += [obs_u, obs_v, obs_u, obs_v, value_u, value_v]
         if "attention" in self.loss_type:
-            value_original = self.value_func(np.array(obs_tar))
-            value_tar = np.array(value_tar)
+            value_original = self.value_func(np.array(obs_tar_attention))
+            value_tar_attention = np.array(value_tar_attention)
             value_original = np.array(value_original).squeeze()
-            value_tar[np.isnan(value_tar)] = value_original[np.isnan(value_tar)]
-            input += [value_tar]
+            value_tar_attention[np.isnan(value_tar_attention)] = value_original[np.isnan(value_tar_attention)]
+            input += [obs_tar_attention, value_tar_attention]
         func = self.train_func if self.steps < self.burnout else self.eval_func
         loss, summary = func(*input)
         # self.log("finish training")
@@ -165,20 +172,40 @@ class MERAttentionAgent(PSMPLearnTargetAgent):
         print("var", np.var(attention), np.max(attention), np.min(attention), value)
         # print(attention.squeeze())
 
-
-        attention = attention.reshape(28, 28)
+        length = int(np.sqrt(np.size(attention)))
+        attention = attention.reshape(length, length)
         attention = (attention - np.min(attention)) / (np.max(attention) - np.min(attention))
-        attention = cv2.resize(attention, (220, 220))
+        attention = cv2.resize(attention, (self.obs_shape[0], self.obs_shape[1]))
+        print(self.obs_shape)
         attention = np.repeat(attention[..., np.newaxis], 3, axis=2)
         # attention[1:, ...] = 1
-        attentioned_image = np.array(self.obs)[0] * attention
+        image = np.array(self.obs)[0, ..., :3]
+        # image = image.transpose((1, 0, 2))
+        attentioned_image = image * attention
         if not os.path.isdir(subdir):
             os.makedirs(os.path.join(subdir, "./mask/"))
+            os.makedirs(os.path.join(subdir, "./masked_image/"))
             os.makedirs(os.path.join(subdir, "./image/"))
         # print(attention.shape)
-        cv2.imwrite(os.path.join(subdir, "./mask/", "masked_image_{}.png".format(step)),
-                    attentioned_image.transpose((1, 0, 2)))
-                    # attentioned_image)
-        cv2.imwrite(os.path.join(subdir, "./image/", "attention_{}.png".format(step)),
-                    # attention * 255)
-        attention.transpose((1, 0, 2)) * 255)
+        cv2.imwrite(os.path.join(subdir, "./masked_image/", "masked_image_{}.png".format(step)),
+                    # attentioned_image.transpose((1, 0, 2)))
+                    attentioned_image)
+        cv2.imwrite(os.path.join(subdir, "./mask/", "attention_{}.png".format(step)),
+                    attention * 255)
+        cv2.imwrite(os.path.join(subdir, "./image/", "obs_{}.png".format(step)),
+                    np.array(self.obs)[0] * 255)
+        # image.transpose((1, 0, 2)) * 255)
+
+    def save_neighbour(self, inds):
+        self.rand_init_func()
+        save_path = os.path.join(self.debug_dir, "./neighbour/{}".format(self.steps))
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+        print(inds)
+        for ind in inds:
+            assert 0 <= ind <= self.cur_capacity, "ind:{},cur_capacity:{}".format(ind, self.cur_capacity)
+            augmented_image = self.augment_input_func(self.replay_buffer[ind:ind + 1])[0][0]
+            print(augmented_image.shape)
+            cv2.imwrite(os.path.join(save_path, "{}.png".format(ind)), self.replay_buffer[ind].transpose(1, 0, 2))
+            cv2.imwrite(os.path.join(save_path, "{}_augmented.png".format(ind)),
+                        (augmented_image * 255).transpose(1, 0, 2))

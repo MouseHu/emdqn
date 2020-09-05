@@ -26,7 +26,7 @@ class PSLearningProcess(Process):
         self.num_actions = num_actions
         self.gamma = gamma
         self.rmax = 100000
-        self.logger = logging.getLogger("ecbp")
+        self.logger = logging.getLogger("ec")
         self.sa_explore = 10
         self.min_iter = 20
         self.run_sweep = True
@@ -223,7 +223,7 @@ class PSLearningProcess(Process):
     def retrieve_q_value(self, obj):
         z, h, knn = obj
 
-        extrinsic_qs, intrinsic_qs, find, neighbour_ind = self.ec_buffer.act_value(z, knn)
+        extrinsic_qs, intrinsic_qs, find, neighbour_ind = self.ec_buffer.act_value_ec(z, knn)
         self.conn.send((0, (extrinsic_qs, intrinsic_qs, find,neighbour_ind)))
 
 

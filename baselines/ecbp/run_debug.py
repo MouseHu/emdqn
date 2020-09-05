@@ -31,11 +31,12 @@ if __name__ == '__main__':
     env = create_env(args)
     print("finish create env")
     subdir = (datetime.datetime.now()).strftime("%m-%d-%Y-%H:%M:%S") + "_" + args.comment
-    make_logger("ec", os.path.join(args.base_log_dir, args.log_dir, subdir, "ec_logger.log"),stream_level=logging.DEBUG)
+    make_logger("ecbp", os.path.join(args.base_log_dir, args.load_dir, "ecbp_logger.log"),stream_level=logging.DEBUG)
+    make_logger("ec", os.path.join(args.base_log_dir, args.load_dir, "ec_logger.log"),stream_level=logging.INFO)
 
     exploration = PiecewiseSchedule([
         (0.1, 1),
-    ], outside_value=0.1)
+    ], outside_value=0.)
 
     try:
         num_actions = env.action_space.n
@@ -62,7 +63,8 @@ if __name__ == '__main__':
         args.eval_epsilon, args.queue_threshold, args.batch_size, args.density, False, args.negative_samples,
         debug=True,debug_dir=os.path.join(args.base_log_dir, args.load_dir),
         tf_writer=None)
-    human_agent = HumanAgent
+    human_agent = HumanAgent(
+        {"w": 3, "s": 4, "d": 1, "a": 0, "x": 2, "p": 5, "3": 3, "4": 4, "1": 1, "0": 0, "2": 2, "5": 5})
     agent = HybridAgent2(human_agent,ps_agent)
 
     with U.make_session(4) as sess:
