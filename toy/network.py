@@ -3,7 +3,6 @@ from torch import nn
 from torch import optim
 import numpy as np
 
-
 def acos_safe(x, eps=1e-4):
     slope = np.arccos(1 - eps) / eps
     # TODO: stop doing this allocation once sparse gradients with NaNs (like in
@@ -112,40 +111,67 @@ class SimpleNet(nn.Module):
 
 
 class AttentionNet(nn.Module):
-    def __init__(self, input_size):
+    def __init__(self, input_size,device):
         super(AttentionNet, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=8, stride=4)
-        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2)
-        self.conv3 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1)
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=8, stride=4, padding=0)
+        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2, padding=0)
+        # self.conv3 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=2, padding=0)
+        self.conv3 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=0)
+        self.padding1 = nn.ReflectionPad2d(2)
+        self.padding2 = nn.ReflectionPad2d(1)
+        self.padding3 = nn.ReflectionPad2d(1)
         self.attention_conv = nn.Conv2d(in_channels=2, out_channels=1, kernel_size=1, stride=1)
         self.normalize_attention = True
-        self.value_fc = nn.Linear(input_size, 1)
+        self.coordinate = torch.arange(-input_size // 2, input_size // 2) / (input_size + 0.0)
+        print(self.coordinate)
+        self.mesh_x, self.mesh_y = torch.meshgrid([self.coordinate, self.coordinate])
+        self.mesh_x = torch.unsqueeze(torch.unsqueeze(self.mesh_x, 0), 0).to(device)
+        self.mesh_y = torch.unsqueeze(torch.unsqueeze(self.mesh_y, 0), 0).to(device)
+        # self.value_fc_1 = nn.Linear(input_size, 32)
+        # self.value_fc_2 = nn.Linear(32, 64)
+        # self.value_fc_3 = nn.Linear(64, 128)
+        self.value_fc_4 = nn.Linear(input_size ** 2, 1)
+        self.input_size = input_size
 
     def forward(self, x):
-        feature_map_1 = nn.LeakyReLU()(self.conv1(x))
-        feature_map_2 = nn.LeakyReLU()(self.conv2(feature_map_1))
-        feature_map_3 = nn.LeakyReLU()(self.conv3(feature_map_2))
-        feature_max, _ = torch.max(feature_map_3, dim=1, keepdim=True)
-        feature_mean= torch.mean(feature_map_3, dim=1, keepdim=True)
+        batch_size = x.shape[0]
+        feature_map_1 = nn.LeakyReLU()(self.padding1(self.conv1(x)))
+        feature_map_2 = nn.LeakyReLU()(self.padding2(self.conv2(feature_map_1)))
+        feature_map_3 = nn.LeakyReLU()(self.padding3(self.conv3(feature_map_2)))
 
+        feature_max, _ = torch.max(feature_map_3, dim=1, keepdim=True)
+        feature_mean = torch.mean(feature_map_3, dim=1, keepdim=True)
+        feature_x = self.mesh_x.repeat(batch_size,1,1,1)
+        feature_y = self.mesh_y.repeat(batch_size,1,1,1)
         attention_feature = torch.cat([feature_max, feature_mean], dim=1)
         attention_mask = nn.Sigmoid()(self.attention_conv(attention_feature))
-        # print(attention_mask.shape,attention_feature.shape)
-        out_feature = attention_feature* attention_mask
+
+        # if self.normalize_attention:
+        #     attention_max = attention_mask.max()
+        #     attention_min = attention_mask.min()
+        #     attention_mask = (attention_mask - attention_min) / (attention_max - attention_min + 1e-12)
+        out_feature = attention_mask * feature_max
         out_feature_flatten = torch.flatten(out_feature, start_dim=1)
         # print(out_feature_flatten.shape)
-        value = self.value_fc(out_feature_flatten)
-        return attention_mask, value
+        # value_latent = nn.ReLU()(self.value_fc_1(out_feature_flatten))
+        # value_latent = nn.ReLU()(self.value_fc_2(value_latent))
+        # value_latent = nn.ReLU()(self.value_fc_3(value_latent))
+        value = self.value_fc_4(out_feature_flatten)
+        return attention_mask, value, out_feature
 
     def loss_func(self, attention, value_p, value_gt):
-        encoder_loss = torch.mean((value_p - value_gt) ** 2)
+        value_p = value_p.squeeze()
+        # encoder_loss = torch.mean((value_p - value_gt) ** 2)
+        # encoder_loss = nn.MSELoss()(value_p,value_gt) +
+        encoder_loss = nn.MSELoss()(value_p,value_gt)
         if self.normalize_attention:
             attention_max = attention.max()
             attention_min = attention.min()
             attention = (attention - attention_min) / (attention_max - attention_min + 1e-12)
         attention = torch.flatten(attention, start_dim=1)
-        decoder_loss = torch.norm(attention)
+        # attention_var= torch.var(attention)
+        decoder_loss = torch.norm(attention, p=1) / self.input_size
 
-        total_loss = encoder_loss + 1e-2 * decoder_loss
+        # total_loss = encoder_loss + 1e-2 * decoder_loss
 
-        return total_loss
+        return encoder_loss, decoder_loss

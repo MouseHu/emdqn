@@ -273,7 +273,7 @@ def build_train_mer_attention(input_type, obs_shape, model_func, num_actions, op
         if "causality" in loss_type:
             inputs += [reward_input_causal, action_input_causal]
         if "attention" in loss_type:
-            inputs += [obs_input_attention,value_input_attention]
+            inputs += [obs_input_attention, value_input_attention]
 
         _, _, z_old, h_old = model_func(
             obs_input_query.get(), num_actions,
@@ -315,8 +315,6 @@ def build_train_mer_attention(input_type, obs_shape, model_func, num_actions, op
             scope="model_func",
             reuse=True)
 
-
-
         # contrast loss
         z_pos = tf.reshape(z_pos, [-1, latent_dim])
         z_tar = tf.reshape(z, [-1, latent_dim])
@@ -357,13 +355,13 @@ def build_train_mer_attention(input_type, obs_shape, model_func, num_actions, op
         causal_loss = tf.reduce_sum(tf.multiply(exp_distance, total_mask))
 
         # regularization loss
-        regularization_loss = -tf.maximum(1., tf.reduce_mean(U.huber_loss(z_tar, 0.01)))
+        # regularization_loss = -tf.maximum(1., tf.reduce_mean(U.huber_loss(z_tar, 0.01)))
         regression_loss = tf.reduce_mean(
-            tf.squared_difference(tf.norm(z_tar, axis=1), alpha * value_input_attention)) + regularization_loss
+            tf.squared_difference(tf.norm(z_tar, axis=1), alpha * value_input_attention))
 
         # linear model loss
         action_embeded = tf.matmul(tf.one_hot(action_input, num_actions), action_embedding)
-        model_loss = tf.reduce_mean(tf.squared_difference(action_embeded + z_tar, z_pos)) + 0.01 * regularization_loss
+        model_loss = tf.reduce_mean(tf.squared_difference(action_embeded + z_tar, z_pos))
 
         # weighted product loss
         uniformity_loss = tf.reduce_sum(tf.exp(2 * tf.reduce_sum(tf.multiply(z_uni_u, z_uni_v), axis=1) - 2))
@@ -376,21 +374,27 @@ def build_train_mer_attention(input_type, obs_shape, model_func, num_actions, op
         # attention loss
 
         attention_flatten = tf.layers.flatten(attention_train)
+        attention_max, attention_min = tf.reduce_max(attention_flatten, keep_dims=True), tf.reduce_min(
+            attention_flatten, keep_dims=True)
+        attention_normalize = (attention_flatten - attention_min) / (1e-12 + attention_max + attention_min)
         # minimize activated area
         print("attention shape", attention_flatten.shape)
         num_pixel = int(attention_flatten.shape[-1])
-        encoder_loss_var = -reduce_std(attention_flatten, axis=1)
+        # encoder_loss_var = -reduce_std(attention_flatten, axis=1)
         # encoder_loss_mean = 1. / num_pixel * tf.maximum(tf.norm(attention_flatten, ord=1, axis=1), 0.2 * num_pixel)
-        # encoder_loss_mean = 1. / num_pixel * tf.norm(attention_flatten, ord=2, axis=1)
-        encoder_loss_mean = tf.maximum(tf.reduce_mean(tf.square(attention_flatten), axis=1), 0.2)
+        # encoder_loss_mean = 1. / num_pixel * tf.norm(attention_normalize, ord=1, axis=1)
+        # encoder_loss_mean = tf.maximum(tf.reduce_mean(tf.square(attention_flatten), axis=1), 0.2)
         # encoder_loss = tf.reduce_mean(tf.exp(-tf.abs(attention_flatten - 0.5)),axis=1)
-        # encoder_loss = tf.norm(attention_flatten, ord=1, axis=1)/num_pixel
-        encoder_loss = encoder_loss_mean + 1e-5 * encoder_loss_var
+        encoder_loss = tf.norm(attention_normalize, ord=1, axis=1)/num_pixel
+        # encoder_loss = encoder_loss_mean + 1e-5 * encoder_loss_var
         # print("encoder loss  shape", encoder_loss.shape)
         # be predictive w.r.t value
-        decoder_loss = tf.reduce_mean(tf.square(value_predict_train - value_input_attention), axis=1)
-        attention_loss = tf.reduce_mean(decoder_loss + encoder_loss)
+        value_predict_train = tf.reshape(value_predict_train,[-1])
+        decoder_loss = tf.reduce_mean(tf.square(value_predict_train - value_input_attention), axis=0)
+        attention_loss = tf.reduce_mean(decoder_loss + 1e-4*encoder_loss)
 
+        model_func_vars = U.scope_vars(U.absolute_scope_name("model_func"))
+        regularization_loss = 1e-4 * tf.add_n([tf.nn.l2_loss(v) for v in model_func_vars])
         total_loss = 0
         if "contrast" in loss_type:
             total_loss += contrast_loss
@@ -407,7 +411,9 @@ def build_train_mer_attention(input_type, obs_shape, model_func, num_actions, op
             total_loss += wp_loss
         if "attention" in loss_type:
             total_loss += attention_loss
-        model_func_vars = U.scope_vars(U.absolute_scope_name("model_func"))
+        if "regularization" in loss_type:
+            total_loss += regularization_loss
+        # model_func_vars = U.scope_vars(U.absolute_scope_name("model_func"))
         model_func_vars_update = copy.copy(model_func_vars)
         if "linear_model" in loss_type:
             model_func_vars_update.append(action_embedding)

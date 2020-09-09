@@ -62,7 +62,7 @@ class MERAttentionAgent(PSMPLearnTargetAgent):
         self.buffer_capacity = 0
         self.trainable = trainable
         self.num_neg = num_neg
-        self.loss_type = ["attention", "contrast"]
+        self.loss_type = ["attention","contrast","regularization"]
         input_type = U.Float32Input if vector_input else U.Uint8Input
         # input_type = U.Uint8Input
         self.hash_func, self.train_func, self.eval_func, self.norm_func, self.attention_func, self.value_func, self.update_target_func = build_train_mer_attention(
@@ -188,13 +188,14 @@ class MERAttentionAgent(PSMPLearnTargetAgent):
             os.makedirs(os.path.join(subdir, "./image/"))
         # print(attention.shape)
         cv2.imwrite(os.path.join(subdir, "./masked_image/", "masked_image_{}.png".format(step)),
-                    # attentioned_image.transpose((1, 0, 2)))
-                    attentioned_image)
+                    attentioned_image.transpose((1, 0, 2)))
+        # attentioned_image)
         cv2.imwrite(os.path.join(subdir, "./mask/", "attention_{}.png".format(step)),
-                    attention * 255)
+                    # attention * 255)
+                    attention.transpose((1, 0, 2)) * 255)
         cv2.imwrite(os.path.join(subdir, "./image/", "obs_{}.png".format(step)),
-                    np.array(self.obs)[0] * 255)
-        # image.transpose((1, 0, 2)) * 255)
+                    # image * 255)
+                    image.transpose((1, 0, 2)) * 255)
 
     def save_neighbour(self, inds):
         self.rand_init_func()

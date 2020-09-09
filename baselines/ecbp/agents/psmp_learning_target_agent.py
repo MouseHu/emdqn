@@ -115,7 +115,7 @@ class PSMPLearnTargetAgent(object):
         model_file = os.path.join(filedir, "model_{}.pkl".format(self.steps))
         saver.save(sess, model_file)
 
-    def load(self, filedir, sess, saver, num_steps):
+    def load(self, filedir, sess, saver, num_steps,load_model=True):
         self.send_and_receive(11, filedir)
         if os.path.exists(os.path.join(filedir, "replay_buffer.pkl")):
             replay_buffer_file = open(os.path.join(filedir, "replay_buffer.pkl"), "rb")
@@ -124,11 +124,12 @@ class PSMPLearnTargetAgent(object):
             except ValueError:
                 replay_buffer_file = open(os.path.join(filedir, "replay_buffer.pkl"), "rb")
                 self.steps, self.buffer_capacity = pkl.load(replay_buffer_file)
-        model_file = os.path.join(filedir, "model_{}.pkl".format(num_steps))
-        for var_name, _ in tf.contrib.framework.list_variables(
-                filedir):
-            print(var_name)
-        saver.restore(sess, model_file)
+        if load_model:
+            model_file = os.path.join(filedir, "model_{}.pkl".format(num_steps))
+            for var_name, _ in tf.contrib.framework.list_variables(
+                    filedir):
+                print(var_name)
+            saver.restore(sess, model_file)
 
     def train(self):
         # sample

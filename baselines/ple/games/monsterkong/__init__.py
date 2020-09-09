@@ -72,8 +72,11 @@ class MonsterKong(PyGameWrapper):
         self.noiseimage = None
         self.noise_size = noise_size
         self.random_noise = None
-        random_range = 40
-        self.random_noise = np.random.randint(-random_range // 2, random_range // 2,
+        random_range = 0
+        if random_range <= 0:
+            self.random_noise = np.zeros((self.noise_size, self.width, self.height, 3))
+        else:
+            self.random_noise = np.random.randint(-random_range // 2, random_range // 2,
                                               (self.noise_size, self.width, self.height, 3))
 
     def init(self):

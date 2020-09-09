@@ -29,8 +29,8 @@ def value_iteration(env, gamma=0.99):
                 if not dones[s, a]:
                     q[a] += gamma * values[int(transition[s, a])]
             values[s] = np.max(q)
-    print(rewards)
-    print(transition)
+    # print(rewards)
+    # print(transition)
     print(values)
     return values
 
@@ -39,6 +39,7 @@ def value_iteration(env, gamma=0.99):
 def gen_dataset_with_value_iteration(env,device):
 
     values = value_iteration(env)
+    print("value variance:",np.var(values))
     obs = []
     for s in range(len(values)):
         env.reset(s)

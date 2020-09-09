@@ -199,15 +199,12 @@ def representation_model_cnn(img_in, num_actions, scope, reuse=False):
         return z
 
 
-
-
 def representation_model_mlp(obs_in, num_actions, scope, reuse=False):
     """As described in https://storage.googleapis.com/deepmind-data/assets/papers/DeepMindNature14236Paper.pdf"""
     # obs_in = tf.reshape(obs_in, (-1,))
     with tf.variable_scope(scope, reuse=reuse):
         out = obs_in
         # coordinate = np.meshgrid()
-
 
         with tf.variable_scope("mlp"):
             #     # original architecture
@@ -323,7 +320,6 @@ def ib_dueling_model(img_in, num_actions, scope, reuse=False):
         return state_score + action_scores
 
 
-
 def unit_representation_model_cnn(img_in, num_actions, scope, reuse=False):
     """As described in https://storage.googleapis.com/deepmind-data/assets/papers/DeepMindNature14236Paper.pdf"""
     img_size = img_in.shape[1]
@@ -350,7 +346,7 @@ def unit_representation_model_cnn(img_in, num_actions, scope, reuse=False):
         return normed_z
 
 
-def representation_with_mask_model_cnn(img_in, num_actions, scope, reuse=False, normalize_attention=True, unit=True):
+def representation_with_mask_model_cnn(img_in, num_actions, scope, reuse=False, unit=True):
     """As described in https://storage.googleapis.com/deepmind-data/assets/papers/DeepMindNature14236Paper.pdf"""
     img_size = img_in.shape[1]
     batch_size = img_in.shape[0]
@@ -367,10 +363,13 @@ def representation_with_mask_model_cnn(img_in, num_actions, scope, reuse=False, 
             #                            padding='same')
             # out = layers.convolution2d(out, num_outputs=64, kernel_size=3, stride=1, activation_fn=tf.nn.leaky_relu,
             #                            padding='same')
+            out = tf.pad(out, tf.constant([[0, 0], [4, 4], [4, 4], [0, 0]]),"REFLECT")
             out = layers.convolution2d(out, num_outputs=32, kernel_size=8, stride=4, activation_fn=tf.nn.leaky_relu,
                                        padding='valid')
+            out = tf.pad(out, tf.constant([[0, 0], [2, 2], [2, 2], [0, 0]]),"REFLECT")
             out = layers.convolution2d(out, num_outputs=64, kernel_size=4, stride=2, activation_fn=tf.nn.leaky_relu,
                                        padding='valid')
+            out = tf.pad(out, tf.constant([[0, 0], [1, 1], [1, 1], [0, 0]]),"REFLECT")
             out = layers.convolution2d(out, num_outputs=64, kernel_size=3, stride=1, activation_fn=tf.nn.leaky_relu,
                                        padding='valid')
 
@@ -384,30 +383,13 @@ def representation_with_mask_model_cnn(img_in, num_actions, scope, reuse=False, 
         attention = layers.convolution2d(attention_feature, num_outputs=1, kernel_size=1, stride=1,
                                          activation_fn=tf.nn.sigmoid)
 
-        if normalize_attention:
-            attention_max = tf.reduce_max(tf.reduce_max(attention, axis=1, keepdims=True), axis=2, keepdims=True)
-            attention_min = tf.reduce_min(tf.reduce_min(attention, axis=1, keepdims=True), axis=2, keepdims=True)
-            attention_normalized = (attention - attention_min) / (attention_max - attention_min + 1e-9)
-            # attention = attention_normalized
-            # normalized_out = tf.multiply(attention_normalized, out)
-            out = tf.multiply(attention_normalized, out)
-            out_value = tf.reduce_mean(out,axis=3,keep_dims=True)
-            out_value = tf.multiply(attention_normalized,out_value)
-            # out = attention_normalized
-        else:
-            out = tf.multiply(attention, out)
-            out_value = tf.reduce_mean(out, axis=3,keep_dims=True)
-            out_value = tf.multiply(attention, out_value)
-            # normalized_out = out
-            # out = attention
-        # out = tf.multiply(attention, out)
+        out = tf.multiply(attention, attention_feature)
         out = layers.flatten(out)
-        out_value=layers.flatten(out_value)
         # value_latent = layers.fully_connected(out_value, num_outputs=32, activation_fn=tf.nn.relu)
-        # value_latent = layers.fully_connected(value_latent, num_outputs=32, activation_fn=tf.nn.leaky_relu)
-        value = layers.fully_connected(out_value, num_outputs=1, activation_fn=None)
+        value_latent = layers.fully_connected(out, num_outputs=32, activation_fn=tf.nn.leaky_relu)
+        value = layers.fully_connected(value_latent, num_outputs=1, activation_fn=None)
 
-        out = layers.fully_connected(out_value, num_outputs=32, activation_fn=tf.nn.leaky_relu)
+        out = layers.fully_connected(out, num_outputs=32, activation_fn=tf.nn.leaky_relu)
         contrast_z = layers.fully_connected(out, num_outputs=32, activation_fn=None)
 
         # normalized_out = layers.flatten(normalized_out)
@@ -577,4 +559,3 @@ def mer_bvae_model(obs_in, noise, scope, reuse=False, use_mlp=False, normalize=F
         if normalize:
             z = z / tf.norm(z, axis=1, keepdims=True)
         return z, h_mean, h_logvar, attention, reconstruct, value
-

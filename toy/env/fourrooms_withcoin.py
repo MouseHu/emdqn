@@ -8,7 +8,7 @@ import random
 from toy.env.rendering import *
 
 
-class Fourrooms(object):
+class FourroomsCoin(object):
     # metadata = {'render.modes':['human']}
     # state :   number of state, counted from row and col
     # cell : (i,j)
@@ -31,12 +31,13 @@ class Fourrooms(object):
 1111111111111
 """
         self.block_size = 8
-        self.occupancy = np.array([list(map(lambda c: 1 if c == '1' else 0, line)) for line in self.layout.splitlines()])
+        self.occupancy = np.array(
+            [list(map(lambda c: 1 if c == '1' else 0, line)) for line in self.layout.splitlines()])
         self.num_pos = int(np.sum(self.occupancy == 0))
         # From any state the agent can perform one of four actions, up, down, left or right
         self.action_space = spaces.Discrete(4)
         # self.observation_space = spaces.Discrete(np.sum(self.occupancy == 0))
-        self.observation_space = spaces.Discrete(self.num_pos)
+        self.observation_space = spaces.Discrete(self.num_pos * 2)
 
         self.directions = [np.array((-1, 0)), np.array((1, 0)), np.array((0, -1)), np.array((0, 1))]
         # self.rng = np.random.RandomState(1234)
@@ -52,12 +53,14 @@ class Fourrooms(object):
                     statenum += 1
         self.tocell = {v: k for k, v in self.tostate.items()}
 
-        self.goal = 62
-
+        self.goal = 66
+        self.coin = 15
+        self.have_coin = True
         self.init_states = list(range(self.observation_space.n))
         self.init_states.remove(self.goal)
         # random encode
-        self.mapping = np.arange(self.num_pos)
+        self.mapping = np.arange(self.num_pos*2)
+        # self.mapping = self.mapping % self.num_pos
         self.dict = np.zeros((self.observation_space.n, 3))
         self.Row = np.shape(self.occupancy)[0]
         self.Col = np.shape(self.occupancy)[1]
@@ -98,12 +101,16 @@ class Fourrooms(object):
                 avail.append(nextcell)
         return avail
 
-    def reset(self,state = -1):
+    def reset(self, state=-1):
         # state = self.rng.choice(self.init_states)
         # self.viewer.close()
         if state < 0:
             state = np.random.choice(self.init_states)
-        self.currentcell = self.tocell[state]
+        if state >= self.num_pos or state == self.coin:
+            self.have_coin = False
+        else:
+            self.have_coin = True
+        self.currentcell = self.tocell[state%self.num_pos]
         self.done = False
         self.current_steps = 0
         return np.array(self.mapping[state])
@@ -135,16 +142,22 @@ class Fourrooms(object):
                 self.currentcell = empty_cells[np.random.randint(len(empty_cells))]
 
         state = self.tostate[self.currentcell]
-        self.done = done = state == self.goal
+        reward = 1. if (state % self.num_pos == self.coin and self.have_coin) or state % self.num_pos == self.goal else 0.
+        if state == self.coin:
+            self.have_coin = False
+        if not self.have_coin:
+            state += self.num_pos
         self.current_steps += 1
         # if self.current_steps >= self.max_epilen:
         #     self.done = True
+        self.done = (state % self.num_pos == self.goal)
+
         info = {}
         if self.done:
             # print(self.current_step, state == self.goal, self.max_epilen)
             info = [{'episode': {'r': state == self.goal, 'l': self.current_steps}}]
         # print(self.currentcell)
-        return np.array(self.mapping[state]), float(done), self.done, info
+        return np.array(self.mapping[state]), reward, self.done, info
 
     def get_dict(self):
         count = 0
@@ -174,6 +187,9 @@ class Fourrooms(object):
 
     def render(self, mode=0):
 
+        if self.have_coin:
+            x, y = self.tocell[self.coin]
+            self.add_block(x, y, (0, 1, 0))
         if self.currentcell[0] > 0:
             x, y = self.currentcell
             self.add_block(x, y, (0, 0, 1))
@@ -190,7 +206,6 @@ class Fourrooms(object):
 
     def all_states(self):
         return self.mapping
-
 
 # register(
 #     id='Fourrooms-v0',
