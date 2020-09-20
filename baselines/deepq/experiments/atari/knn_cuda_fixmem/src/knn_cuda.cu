@@ -233,15 +233,14 @@ __global__ void cuParallelSqrt(float *dist, int width, int k){
     dist[yIndex*width + xIndex] = sqrt(dist[yIndex*width + xIndex]);
 }
 
-<<<<<<< HEAD
+
 __global__ void cuParallelMusk(float *dist, bool* musk, int ref_width){
   unsigned int xIndex = blockIdx.x * blockDim.x + threadIdx.x;
 
   if (xIndex<ref_width && musk[xIndex])
     dist[xIndex] = 1e10;
 }
-=======
->>>>>>> 77781e86f48792f429abd667cea97c4aa6aaf2f3
+
 /**
   * Computes the distance between two matrix A (reference points) and
   * B (query points) containing respectively wA and wB points.
@@ -481,19 +480,12 @@ void knn_cuda(float* ref_host, int ref_width, float* query_host,
   if (query_width%16 != 0) g_k_16x16.x += 1;
   if (k  %16 != 0) g_k_16x16.y += 1;
 
-<<<<<<< HEAD
   
   // Kernel 1: Compute all the distances
   cuComputeDistanceGlobal<<<g_16x16,t_16x16>>>(ref_dev, ref_width,
       query_dev, query_width, height, dist_dev);
   
-  
-=======
-  // Kernel 1: Compute all the distances
-  cuComputeDistanceGlobal<<<g_16x16,t_16x16>>>(ref_dev, ref_width,
-      query_dev, query_width, height, dist_dev);
 
->>>>>>> 77781e86f48792f429abd667cea97c4aa6aaf2f3
   // Kernel 2: Sort each column
   cuInsertionSort<<<g_256x1,t_256x1>>>(dist_dev, ind_dev,
       query_width, ref_width, k);
@@ -518,40 +510,31 @@ void allocate_cuda(int address_num,int size, int dims, int query_max, int k)
 {
   unsigned int size_of_float = sizeof(float);
   unsigned int size_of_int   = sizeof(int);
-<<<<<<< HEAD
   unsigned int size_of_bool  = sizeof(bool);
-=======
->>>>>>> 77781e86f48792f429abd667cea97c4aa6aaf2f3
+
   cuInit(0);
   // Variables
    float  *query_dev;
   float  *ref_dev;
   float  *dist_dev;
   int    *ind_dev;
-<<<<<<< HEAD
   bool *musk_dev;
-=======
->>>>>>> 77781e86f48792f429abd667cea97c4aa6aaf2f3
+
   //printf("1111\n");
   // Allocation of global memory for query points and for distances, CUDA_CHECK
   cudaMalloc((void **) &query_dev, query_max * dims * size_of_float);
   cudaMalloc((void **) &dist_dev, query_max * size * size_of_float);
 
-<<<<<<< HEAD
   cudaMalloc((void **) &musk_dev, size *  size_of_bool);
-=======
->>>>>>> 77781e86f48792f429abd667cea97c4aa6aaf2f3
+
   // Allocation of global memory for indexes CUDA_CHECK
   cudaMalloc((void **) &ind_dev, query_max * k * size_of_int);
 
   // Allocation of global memory CUDA_CHECK
   cudaMalloc( (void **) &ref_dev, size * dims * size_of_float);
   //printf("2222\n");
-<<<<<<< HEAD
   KNNAddress address = {query_dev,ref_dev,dist_dev,ind_dev,musk_dev};
-=======
-  KNNAddress address = {query_dev,ref_dev,dist_dev,ind_dev};
->>>>>>> 77781e86f48792f429abd667cea97c4aa6aaf2f3
+
   theAddress[address_num] =address;
 
   //printf("allocate: %llu %llu %llu %llu \n",query_dev,ref_dev,dist_dev,ind_dev);
@@ -603,7 +586,6 @@ void knn_cuda_fix_ref(int address_num, float* dist_host, int* ind_host, float* q
   cudaMemcpy(&ind_host[0], theAddress[address_num].ind_dev,
       query_width * k * size_of_int, cudaMemcpyDeviceToHost);
 }
-<<<<<<< HEAD
 
 void knn_cuda_fix_ref_conditional(int address_num, float* dist_host, int* ind_host, float* query_host,bool* musk, int query_width, int k, int ref_width, int dims){
 
@@ -656,8 +638,7 @@ void knn_cuda_fix_ref_conditional(int address_num, float* dist_host, int* ind_ho
   cudaMemcpy(&ind_host[0], theAddress[address_num].ind_dev,
       query_width * k * size_of_int, cudaMemcpyDeviceToHost);
 }
-=======
->>>>>>> 77781e86f48792f429abd667cea97c4aa6aaf2f3
+
 /**
   * Example of use of kNN search CUDA.
   */
