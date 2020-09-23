@@ -236,6 +236,8 @@ class LRU_KNN_GPU_PS(object):
 
         # print(np.array(key).shape)
         if self.curr_capacity >= self.capacity:
+            # print("Currently not allow buffer to delete old node!")
+            # raise NotImplementedError
             # find the LRU entry
             old_index = int(np.argmin(self.lru))
             for action in range(self.num_actions):
@@ -305,6 +307,7 @@ class LRU_KNN_GPU_PS(object):
         positives = []
         negatives = []
         values = []
+        q_values = []
         actions = []
 
         rewards = []
@@ -313,8 +316,7 @@ class LRU_KNN_GPU_PS(object):
             if priority == 'uniform':
                 ind = int(np.random.randint(0, self.curr_capacity, 1))
             elif priority == 'value_l2':
-                value_variance = np.nan_to_num((self.state_value_v[:self.curr_capacity] - np.nanmean(
-                    self.state_value_v[:self.curr_capacity])) ** 2)
+                value_variance = np.nan_to_num((self.state_value_v[:self.curr_capacity] - 0) ** 2)
                 probs = value_variance / np.sum(value_variance)
                 ind = int(np.random.choice(np.arange(0, self.curr_capacity), p=probs))
             else:
@@ -336,15 +338,27 @@ class LRU_KNN_GPU_PS(object):
             positives.append(positive)
             actions.append(action)
             rewards.append(reward)
+            q_values.append(self.external_value[ind, :])
             values.append(np.nanmax(self.external_value[ind, :]))
 
         while len(negatives) < sample_size * neg_num:
             ind = indexes[len(negatives) // neg_num]
+            pos_ind = positives[len(negatives) // neg_num]
 
             neg_ind = int(np.random.randint(0, self.curr_capacity, 1))
-            neg_ind_next = [[ind_tp1 for ind_tp1 in self.next_id[neg_ind][a].keys()] for a in range(self.num_actions)]
+            neg_ind_next = [np.array([ind_tp1 for ind_tp1 in self.next_id[neg_ind][a].keys()]) for a in range(self.num_actions)]
+            neg_ind_next = np.array(neg_ind_next).squeeze()
+
             ind_next = [[ind_tp1 for ind_tp1 in self.next_id[ind][a].keys()] for a in range(self.num_actions)]
-            if ind in neg_ind_next or neg_ind in ind_next or neg_ind == ind:
+            pos_ind_next = [np.array([ind_tp1 for ind_tp1 in self.next_id[pos_ind][a].keys()]) for a in range(self.num_actions)]
+            pos_ind_next = np.array(pos_ind_next).squeeze()
+            try:
+                conflict_with_tar = ind in neg_ind_next or neg_ind in ind_next or neg_ind == ind
+                conflict_with_pos = pos_ind in neg_ind_next or neg_ind in pos_ind_next or neg_ind == pos_ind
+            except ValueError:
+                print(neg_ind,pos_ind,neg_ind_next,pos_ind_next)
+                raise ValueError
+            if conflict_with_tar or conflict_with_pos:
                 continue
             negatives.append(neg_ind)
         neighbours_index = self.knn_index(indexes)
@@ -358,7 +372,7 @@ class LRU_KNN_GPU_PS(object):
         # z_pos = [self.states[pos] for pos in positives]
         # z_neg = [self.states[neg] for neg in negatives]
 
-        return indexes, positives, negatives, rewards, values, actions, neighbours_index, neighbours_value
+        return indexes, positives, negatives, rewards, q_values, actions, neighbours_index, neighbours_value
 
     def knn_index(self, index):
         assert self.knn + 1 < self.curr_capacity

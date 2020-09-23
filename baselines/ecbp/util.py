@@ -6,19 +6,21 @@ from baselines.deepq.dqn_utils import *
 import baselines.common.tf_util as U
 import datetime
 
-
 from baselines import logger
 from baselines import deepq
 # from baselines.ecbp.env.d4rl_wrapper import D4RLDiscreteMazeEnvWrapper
 
-from baselines.ecbp.env.fourrooms import Fourrooms
+# from baselines.ecbp.env.fourrooms import Fourrooms
+from toy.env.fourrooms import Fourrooms
+from toy.env.fourrooms_withcoin import FourroomsCoin
+from toy.env.fourrooms import ImageInputWarpper
 # from baselines.ecbp.env.tworooms import Tworooms
 from baselines.common.atari_wrappers_deprecated import FrameStack
 from baselines.common.atari_lib import MKPreprocessing
 from baselines.common.atari_lib import CropWrapper
-from baselines.common.atari_lib import NoisyEnv
+from baselines.common.atari_lib import NoisyEnv, ImageNoisyEnv
 
-from baselines.ecbp.env.noisy_wrapper import StaticNoisyEnv,DynamicNoisyEnv
+from baselines.ecbp.env.noisy_wrapper import StaticNoisyEnv, DynamicNoisyEnv
 from baselines.ecbp.env.noisy_wrapper import DiscreteWrapper
 
 from baselines.common.atari_lib import DoomPreprocessing
@@ -45,13 +47,14 @@ from baselines.ecbp.agents.ec_agent import ECAgent
 from baselines.ecbp.agents.human_agent import HumanAgent
 from baselines.ecbp.agents.hybrid_agent import HybridAgent, HybridAgent2
 from baselines.ecbp.agents.graph.model import representation_model_cnn, representation_model_mlp, rp_model, \
-contrastive_model, unit_representation_model_cnn, unit_representation_model_mlp, \
-representation_with_mask_model_cnn,mer_bvae_model,bvae_encoder,bvae_decoder
+    contrastive_model, unit_representation_model_cnn, unit_representation_model_mlp, \
+    representation_with_mask_model_cnn, mer_bvae_model, bvae_encoder, bvae_decoder
 import logging
 from dreamer import tasks as dreamer_tasks
 from coinrun.coinrun.main_utils import make_general_env as make_coinrun_env
 from coinrun.coinrun.coinrunenv import CoinRunVecEnv
 from coinrun.coinrun.config import Config as CoinrunConfig
+
 mk_map_config = {"small": "../ple/configs/config_ppo_mk.py", "hard": "../ple/configs/config_ppo_mk_hard.py",
                  "hard_2": "../ple/configs/config_ppo_mk_hard_2.py", "large": "../ple/configs/config_ppo_mk_large.py",
                  "large_2": "../ple/configs/config_ppo_mk_large_2.py"}
@@ -61,6 +64,7 @@ coinrun_game_versions = {
     'platform': 1001,
     'maze': 1002,
 }
+
 
 # from gym.wrappers.monitoring.video_recorder import VideoRecorder
 
@@ -139,10 +143,8 @@ def parse_args():
     boolean_flag(parser, "learning", default=False,
                  help="if true and model was continued learned")
 
-
     boolean_flag(parser, "density", default=False,
                  help="if or not to use density  based update rule")
-
 
     boolean_flag(parser, "exploration", default=False,
                  help="if true and model was continued learned")
@@ -196,7 +198,7 @@ def create_env(args):
 
             id='MonsterKong-v{}'.format(args.number),
             entry_point='baselines.ple.gym_env.monsterkong:MonsterKongEnv',
-            kwargs={'map_config': map_config,'noise_size':args.noise_size},
+            kwargs={'map_config': map_config, 'noise_size': args.noise_size},
         )
 
         env = gym.make('MonsterKong-v{}'.format(args.number))
@@ -205,9 +207,13 @@ def create_env(args):
         env = MKPreprocessing(env, frame_skip=3, no_jump=True)
     elif args.env == "GW" or args.env == "gw":
         if args.env_name == "fourrooms":
-            env = Fourrooms()
+            env = ImageInputWarpper(Fourrooms())
+        elif args.env_name == "fourrooms_noise":
+            env = ImageNoisyEnv(ImageInputWarpper(Fourrooms()), args.noise_size, 100)
+        elif args.env_name == "fourroomscoin":
+            env = ImageInputWarpper(FourroomsCoin())
         else:
-            env = Tworooms()
+            env = ImageNoisyEnv(ImageInputWarpper(FourroomsCoin()), args.noise_size, 100)
     elif args.env == "doom" or args.env == "Doom":
         params = load_params(args.param_dir, args.env_name)
         env = DoomEnvironment(**params['env_params'])
@@ -279,7 +285,7 @@ def create_env(args):
         init_args_and_threads(4)
 
         # env_id = coinrun_game_versions.get(args.env_name,1000)
-        print("create env" ,args.env_name)
+        print("create env", args.env_name)
         env = CoinRunVecEnv(args.env_name, 1)
     # elif args.env == "d4rl":
     #     import d4rl
@@ -287,7 +293,6 @@ def create_env(args):
     #
     #     if "maze" in args.env_name:
     #         env = D4RLDiscreteMazeEnvWrapper(env)
-
 
     else:
         raise NotImplementedError
@@ -338,7 +343,7 @@ def make_agent(args, env, tf_writer):
                        obs_shape, input_type,
                        args.lr,
 
-                       args.buffer_size, num_actions, args.latent_dim,args.gamma, args.knn,
+                       args.buffer_size, num_actions, args.latent_dim, args.gamma, args.knn,
 
                        args.eval_epsilon, args.queue_threshold, args.batch_size,
                        tf_writer)

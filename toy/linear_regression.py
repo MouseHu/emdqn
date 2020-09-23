@@ -1,5 +1,5 @@
 import numpy as np
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LinearRegression,Lasso,Ridge
 import pickle
 
 value = [1.73247256, 1.74997229, 1.76764877, 1.78550381, 1.8035392, 1.87752102,
@@ -41,13 +41,15 @@ value = np.array(value)
 feature = np.zeros((208, 105))
 # feature = np.ones((208, 105))*0.5
 for i in range(208):
-    feature[i, i % 104] =1
+    feature[i, i % 104] = 1
     feature[i, 104] = i//104
 
 # feature = pickle.load(open("feature_map.pkl","rb"))
 # feature = feature.reshape(208,-1)
 
 clf = LinearRegression()
+# clf = Lasso(alpha=1e-5)
+# clf = Ridge(alpha=1)
 clf.fit(feature, value)
 
 print("coeff")

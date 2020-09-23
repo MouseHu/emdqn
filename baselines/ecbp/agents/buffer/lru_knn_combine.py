@@ -1,67 +1,75 @@
 import numpy as np
 from sklearn.neighbors import BallTree, KDTree
 import os
-from baselines.ecbp.agents.buffer.lru_knn_mc import LRU_KNN_MC
+from baselines.ecbp.agents.buffer.lru_knn_singleaction import LRU_KNN_SingleAction
 import gc
 
 
 class LRU_KNN_COMBINE(object):
-    def __init__(self, num_actions, buffer_size, latent_dim, hash_dim, input_dims, name):
+    def __init__(self, num_actions, buffer_size, hash_dim, obs_shape, vector_input=False):
         self.ec_buffer = []
+        self.hash_dim = hash_dim
         self.num_actions = num_actions
-        for i in range(num_actions):
-            self.ec_buffer.append(LRU_KNN_MC(buffer_size, latent_dim, hash_dim, input_dims, 'game'))
 
-    def add(self, action, key, hash, value_decay, prev_id=-1, prev_action=-1, obs=None):
+        for i in range(num_actions):
+            self.ec_buffer.append(LRU_KNN_SingleAction(buffer_size, hash_dim, 'game'))
+
+        self.replay_buffer = np.empty((buffer_size, num_actions) + obs_shape,
+                                      np.float32 if vector_input else np.uint8)
+
+    def capacity(self):
+        return [buffer.curr_capacity for buffer in self.ec_buffer]
+
+    def add(self, action, hash, value_decay, prev_id=-1, prev_action=-1):
         buffer = self.ec_buffer[action]
         if buffer.curr_capacity >= buffer.capacity:
             # find the LRU entry
-            index = np.argmin(buffer.lru)
+            index = int(np.argmin(buffer.lru))
         else:
             index = buffer.curr_capacity
             buffer.curr_capacity += 1
-        if buffer.prev_id[index] > 0:
-            prev_buffer = self.ec_buffer[buffer.prev_action]
-            prev_buffer.next_id[buffer.prev_id[index]] = -1
-            prev_buffer.next_action[buffer.prev_id[index]] = -1
-        buffer.states[index] = key
+        for old_prev_id, old_prev_action in zip(buffer.prev_id[index], buffer.prev_action[index]):
+            prev_buffer = self.ec_buffer[old_prev_action]
+            next_places = zip(prev_buffer.next_id[old_prev_id], prev_buffer.next_action[old_prev_id])
+            next_places = [x for x in next_places if x != (index, action)]
+            prev_buffer.next_id[old_prev_id], prev_buffer.next_action[old_prev_id] = zip(*next_places)
         buffer.hashes[index] = hash
-        # self.hashes[tuple(hash)] = old_index
-        buffer.obses[index] = obs
+        # buffer.obses[index] = obs
         buffer.q_values_decay[index] = value_decay
         buffer.lru[index] = buffer.tm
         if prev_id >= 0:
-            assert prev_action>=0, "id and action must provide together"
+            assert prev_action >= 0, "id and action must be provided together"
             prev_buffer = self.ec_buffer[prev_action]
-            prev_buffer.next_id[prev_id] = index
-            prev_buffer.next_action[prev_id] = action
-        buffer.prev_id[index] = prev_id
-        buffer.prev_action[index] = prev_action
+            prev_buffer.next_id[prev_id].append(index)
+            prev_buffer.next_action[prev_id].append(action)
+        buffer.prev_id[index] = [prev_id]
+        buffer.prev_action[index] = [prev_action]
         buffer.tm += 0.01
         return index
 
-    def peek(self, action, z, h, value_decay, modify, verbose=False, prev_id=-1, prev_action=-1):
+    def peek(self, action, h, value_decay, modify, prev_id=-1, prev_action=-1):
+        h = np.squeeze(h)
         buffer = self.ec_buffer[action]
         if buffer.curr_capacity == 0 or buffer.build_tree == False:
             return None, None
         dist, ind = buffer.hash_tree.query([h], k=1)
         ind = ind[0][0]
-        # if self.states[ind] == key:
-        # if np.allclose(self.states[ind], key):
-        # if np.allclose(self.hashes[ind], h, atol=1e-08):
-        if dist[0][0] < 1e-2:
+        if dist[0][0] < 1e-9:
             buffer.lru[ind] = buffer.tm
             buffer.tm += 0.01
             if modify:
-                buffer.states[ind] = z
+                # buffer.states[ind] = z
                 if value_decay > buffer.q_values_decay[ind]:
                     buffer.q_values_decay[ind] = value_decay
                     if prev_id >= 0:
-                        assert prev_action >= 0, "id and action must provide together"
-                        self.ec_buffer[buffer.prev_action[prev_id]].next_id[prev_id] = ind
-                        self.ec_buffer[buffer.prev_action[prev_id]].next_action[prev_id] = action
-                        buffer.prev_id[ind] = prev_id
-                        buffer.prev_action[ind] = prev_action
+                        assert prev_action >= 0, "id and action must be provided together"
+                        prev_buffer = self.ec_buffer[prev_action]
+                        if (action, ind) not in zip(prev_buffer.next_id[prev_id], prev_buffer.next_action[prev_id]):
+                            self.ec_buffer[prev_action].next_id[prev_id].append(ind)
+                            self.ec_buffer[prev_action].next_action[prev_id].append(action)
+                        if (prev_action, prev_id) not in zip(buffer.prev_id[ind], buffer.prev_action[ind]):
+                            buffer.prev_id[ind].append(prev_id)
+                            buffer.prev_action[ind].append(prev_action)
             return buffer.q_values_decay[ind], ind
         # print self.states[ind], key
         else:
@@ -70,7 +78,7 @@ class LRU_KNN_COMBINE(object):
             #     print(dist[0])
             return None, None
 
-    def sample(self, batch_size, K=1):
+    def sample(self, batch_size, num_neg=1):
         capacity = sum([buffer.curr_capacity for buffer in self.ec_buffer])
         assert 0 < batch_size < capacity, "can't sample that much!"
         anchor_idxes = []
@@ -84,26 +92,32 @@ class LRU_KNN_COMBINE(object):
             rand_action = np.random.randint(0, self.num_actions)
             buffer = self.ec_buffer[rand_action]
             rand_idx = np.random.randint(0, buffer.curr_capacity)
-            if buffer.next_id[rand_idx] > 0:
+            if len(buffer.next_id[rand_idx]) > 0:
                 anchor_idxes.append(rand_idx)
                 anchor_actions.append(rand_action)
-                pos_idxes.append(buffer.next_id[rand_idx])
-                pos_actions.append(buffer.next_action[rand_idx])
+                rand_pos = np.random.randint(0, len(buffer.next_id[rand_idx]))
+                pos_idxes.append(buffer.next_id[rand_idx][rand_pos])
+                pos_actions.append(buffer.next_action[rand_idx][rand_pos])
+                prev_place = list(zip(buffer.prev_id[rand_idx], buffer.prev_action[rand_idx]))
+                next_place = list(zip(buffer.next_id[rand_idx], buffer.next_action[rand_idx]))
                 neg_action, neg_idx = self.sample_neg_keys(
-                    [(rand_idx, rand_action), (buffer.next_id[rand_idx], buffer.next_action[rand_idx])], K)
+                    [(rand_idx, rand_action)] + prev_place + next_place, num_neg)
                 neg_idxes.append(neg_idx)
                 neg_actions.append(neg_action)
-        anchor_obses = [self.ec_buffer[action].obses[id] for id, action in zip(anchor_idxes, anchor_actions)]
-        anchor_keys = [self.ec_buffer[action].states[id] for id, action in zip(anchor_idxes, anchor_actions)]
-        pos_keys = [self.ec_buffer[action].states[id] for id, action in zip(pos_idxes, pos_actions)]
-        neg_keys = [[self.ec_buffer[action].states[id] for id, action in zip(neg_idxes[i], neg_actions[i])] for i in
-                    range(len(neg_idxes))]
+        neg_idxes = np.array(neg_idxes).reshape(-1)
+        neg_actions = np.array(neg_actions).reshape(-1)
+        # anchor_obses = [self.ec_buffer[action].obses[id] for id, action in zip(anchor_idxes, anchor_actions)]
+        # anchor_keys = [self.ec_buffer[action].hashes[id] for id, action in zip(anchor_idxes, anchor_actions)]
+        # pos_keys = [self.ec_buffer[action].hashes[id] for id, action in zip(pos_idxes, pos_actions)]
+        # neg_keys = [[self.ec_buffer[action].hashes[id] for id, action in zip(neg_idxes[i], neg_actions[i])] for i in
+        #             range(len(neg_idxes))]
 
-        anchor_places = list(zip(anchor_actions, anchor_idxes))
-        pos_places = list(zip(pos_actions, pos_idxes))
-        neg_places = [list(zip(neg_actions[i], neg_idxes[i])) for i in range(len(neg_idxes))]
-        return anchor_places, pos_places, neg_places, \
-               anchor_obses, anchor_keys, pos_keys, neg_keys
+        anchor_obs = [self.replay_buffer[s, a] for a, s in zip(anchor_actions, anchor_idxes)]
+        neg_obs = [self.replay_buffer[s, a] for a, s in zip(neg_actions, neg_idxes)]
+        pos_obs = [self.replay_buffer[s, a] for a, s in zip(pos_actions, pos_idxes)]
+        anchor_values = [self.ec_buffer[action].q_values_decay[index] for action, index in
+                         zip(anchor_actions, anchor_idxes)]
+        return anchor_obs, pos_obs, neg_obs, anchor_values, anchor_actions
 
     def sample_neg_keys(self, avoids, batch_size):
         # sample negative keys
@@ -120,11 +134,10 @@ class LRU_KNN_COMBINE(object):
                 places.append((rand_action, id))
         return list(zip(*places))
 
-    def update(self, places, values):
-        actions, idxes = list(zip(*places))
+    def update(self, actions, idxes, values):
         assert len(idxes) == len(values)
         for action, id, value in zip(actions, idxes, values):
-            self.ec_buffer[action].states[id] = value
+            self.ec_buffer[action].hashes[id] = value
 
     def update_kdtree(self):
         for ec in self.ec_buffer:
@@ -133,10 +146,36 @@ class LRU_KNN_COMBINE(object):
     def knn_value(self, action, key, knn):
         return self.ec_buffer[action].knn_value(key, knn=knn)
 
-    def act_value(self, action, key, h, knn, verbose=True):
-        value, _ = self.peek(action, key, h, None, modify=False, verbose=verbose)
+    def act_value(self, action, key, knn):
+
+        value, _ = self.peek(action, key, None, modify=False)
         if value is not None:
             return value, True
         else:
             # print(self.curr_capacity,knn)
-            return self.ec_buffer[action].knn_value(key, knn=knn), False
+            return self.knn_value(action, key, knn=knn), False
+
+    def update_sequence(self, sequence, gamma):
+        prev_id, prev_action = -1, -1
+        Rtd = 0
+        id_sequence = []
+        action_sequence = []
+        for obs, z, a, r, done in reversed(sequence):
+            # print(np.mean(z))
+            Rtd = gamma * Rtd + r
+            qd, current_id = self.peek(a, z, Rtd, True, prev_id, prev_action)
+            if qd is None:  # new action
+                current_id = self.add(a, z, Rtd, prev_id, prev_action)
+
+            # print(self.ec_buffer[a].capacity)
+            self.replay_buffer[current_id, a] = obs
+            # if prev_action >= 0 and prev_id >= 0:
+            #     self.ec_buffer[prev_action].add_next(prev_id, current_id, a)
+            prev_id = current_id
+            prev_action = a
+            id_sequence.append(current_id)
+            action_sequence.append(a)
+        # self.sequence = []
+        # print(id_sequence)
+        # print(action_sequence)
+        return

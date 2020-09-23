@@ -264,9 +264,7 @@ class LRU_KNN_GPU_PS_DENSITY(object):
                 # print(self.neighbour_dist_forward[neighbour])
                 self.compute_density(neighbour)
             for neighbour in self.neighbour_forward[old_index]:
-
                 self.neighbour_backward[neighbour].remove(old_index)
-
 
             # clean buffer and then treat it like a new one
             self.density[old_index] = self.rmax
@@ -284,7 +282,6 @@ class LRU_KNN_GPU_PS_DENSITY(object):
             self.curr_capacity += 1
 
         if new_index in knn_ind:
-
             place = np.where(np.array(new_index) == knn_ind)[0]
 
             assert len(place) == 1, place
@@ -347,7 +344,6 @@ class LRU_KNN_GPU_PS_DENSITY(object):
             self.external_value[state, action] = self.reward[state, action]
         self.external_value[state, action] += self.gamma * trans_p * delta_u
 
-
     def sample(self, sample_size, neg_num=1):
 
         sample_size = min(self.curr_capacity, sample_size)
@@ -386,11 +382,14 @@ class LRU_KNN_GPU_PS_DENSITY(object):
 
         while len(negatives) < sample_size * neg_num:
             ind = indexes[len(negatives) // neg_num]
-
+            pos_ind = positives[len(negatives) //neg_num]
             neg_ind = int(np.random.randint(0, self.curr_capacity, 1))
             neg_ind_next = [[ind_tp1 for ind_tp1 in self.next_id[neg_ind][a].keys()] for a in range(self.num_actions)]
             ind_next = [[ind_tp1 for ind_tp1 in self.next_id[ind][a].keys()] for a in range(self.num_actions)]
-            if ind in neg_ind_next or neg_ind in ind_next or neg_ind == ind:
+            pos_ind_next = [[ind_tp1 for ind_tp1 in self.next_id[pos_ind][a].keys()] for a in range(self.num_actions)]
+            conflict_with_tar = ind in neg_ind_next or neg_ind in ind_next or neg_ind == ind
+            conflict_with_pos = pos_ind in neg_ind_next or neg_ind in pos_ind_next or neg_ind == pos_ind
+            if conflict_with_tar or conflict_with_pos:
                 continue
             negatives.append(neg_ind)
         neighbours_index = self.knn_index(indexes)
@@ -405,7 +404,6 @@ class LRU_KNN_GPU_PS_DENSITY(object):
         # z_neg = [self.states[neg] for neg in negatives]
 
         return indexes, positives, negatives, rewards, values, actions, neighbours_index, neighbours_value
-
 
     def knn_index(self, index):
         assert self.knn + 1 < self.curr_capacity
@@ -423,7 +421,6 @@ class LRU_KNN_GPU_PS_DENSITY(object):
             self.states[ind] = z_new[i]
             knn_cuda_fixmem.add(self.address, int(ind), np.array(z_new[i]).squeeze())
 
-
     def recompute_density(self):
         self.neighbour_backward = [[] for _ in range(self.capacity)]
         for i in range(int(np.ceil(self.curr_capacity / self.batch_size))):
@@ -435,10 +432,10 @@ class LRU_KNN_GPU_PS_DENSITY(object):
             self.neighbour_dist_forward[
             i * self.batch_size:min(self.curr_capacity, (i + 1) * self.batch_size)] = knn_dist
             for j in range(low, high):
-                knn_ind_j = knn_ind[j-low].tolist()
+                knn_ind_j = knn_ind[j - low].tolist()
                 knn_ind_j.pop(0)
                 self.neighbour_forward[j] = knn_ind_j
-                knn_dist_j = knn_dist[j-low].tolist()
+                knn_dist_j = knn_dist[j - low].tolist()
                 knn_dist_j.pop(0)
                 self.neighbour_dist_forward[j] = knn_dist_j
                 # if j in knn_ind:
@@ -450,4 +447,3 @@ class LRU_KNN_GPU_PS_DENSITY(object):
                 for ind in self.neighbour_forward[j]:
                     self.neighbour_backward[ind].append(j)
                 self.compute_density(j)
-

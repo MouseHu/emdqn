@@ -29,7 +29,6 @@ class LRU_KNN_COUNT_GPU_FIXMEM(object):
         self.threshold = 1e-8
         self.knn = knn
         self.logger = logging.getLogger("ecbp")
-        # self.beta = beta
         self.address = knn_cuda_fixmem.allocate(capacity, z_dim, 32, knn)
 
     def peek(self, key, external_value, internal_value, modify=False):
@@ -148,6 +147,75 @@ class LRU_KNN_COUNT_GPU_FIXMEM(object):
             knn_cuda_fixmem.add(self.address, int(self.curr_capacity), np.array(key))
             self.curr_capacity += 1
         self.tm += 0.01
+
+    def sample(self, sample_size, neg_num=1, priority='uniform'):
+
+        sample_size = min(self.curr_capacity, sample_size)
+        if sample_size % 2 == 1:
+            sample_size -= 1
+        if sample_size < 2:
+            return None
+        indexes = []
+        positives = []
+        negatives = []
+        values = []
+        q_values = []
+        actions = []
+
+        rewards = []
+
+        while len(indexes) < sample_size:
+            if priority == 'uniform':
+                ind = int(np.random.randint(0, self.curr_capacity, 1))
+            elif priority == 'value_l2':
+                value_variance = np.nan_to_num((self.state_value_v[:self.curr_capacity] - 0) ** 2)
+                probs = value_variance / np.sum(value_variance)
+                ind = int(np.random.choice(np.arange(0, self.curr_capacity), p=probs))
+            else:
+                ind = int(np.random.randint(0, self.curr_capacity, 1))
+            if ind in indexes:
+                continue
+            next_id_tmp = [[(a, ind_tp1) for ind_tp1 in self.next_id[ind][a].keys()] for a in
+                           range(self.num_actions)]
+            next_id = []
+            for x in next_id_tmp:
+                next_id += x
+            # next_id = np.array(next_id).reshape(-1)
+            if len(next_id) == 0:
+                continue
+            positive = next_id[np.random.randint(0, len(next_id))][1]
+            action = next_id[np.random.randint(0, len(next_id))][0]
+
+            reward = self.reward[ind, action]
+            indexes.append(ind)
+            positives.append(positive)
+            actions.append(action)
+            rewards.append(reward)
+            q_values.append(self.external_value[ind, :])
+            values.append(np.nanmax(self.external_value[ind, :]))
+
+        while len(negatives) < sample_size * neg_num:
+            ind = indexes[len(negatives) // neg_num]
+
+            neg_ind = int(np.random.randint(0, self.curr_capacity, 1))
+            neg_ind_next = [[ind_tp1 for ind_tp1 in self.next_id[neg_ind][a].keys()] for a in
+                            range(self.num_actions)]
+            ind_next = [[ind_tp1 for ind_tp1 in self.next_id[ind][a].keys()] for a in range(self.num_actions)]
+            if ind in neg_ind_next or neg_ind in ind_next or neg_ind == ind:
+                continue
+            negatives.append(neg_ind)
+        neighbours_index = self.knn_index(indexes)
+
+        neighbours_value = np.array(
+            [[np.max(self.external_value[ind, :]) for ind in inds] for inds in neighbours_index])
+        for i in range(len(neighbours_value)):
+            neighbours_value[i][np.isnan(neighbours_value[i])] = values[i]
+        neighbours_index = np.array(neighbours_index).reshape(-1)
+        # z_target = [self.states[ind] for ind in indexes]
+        # z_pos = [self.states[pos] for pos in positives]
+        # z_neg = [self.states[neg] for neg in negatives]
+
+        return indexes, positives, negatives, rewards, q_values, actions, neighbours_index, neighbours_value
 
     def update_kdtree(self):
         pass

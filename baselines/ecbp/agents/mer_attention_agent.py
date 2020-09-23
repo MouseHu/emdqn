@@ -10,6 +10,7 @@ from baselines.ecbp.agents.graph.build_graph_dueling import *
 from baselines.ecbp.agents.graph.build_graph_contrast_hash import *
 from baselines.ecbp.agents.graph.build_graph_contrast_target import *
 from baselines.ecbp.agents.graph.build_graph_mer_attention import *
+from baselines.ecbp.agents.graph.build_graph_mer import *
 from baselines.ecbp.agents.graph.graph_util import *
 from baselines import logger
 import copy
@@ -62,25 +63,27 @@ class MERAttentionAgent(PSMPLearnTargetAgent):
         self.buffer_capacity = 0
         self.trainable = trainable
         self.num_neg = num_neg
-        self.loss_type = ["attention","contrast","regularization"]
+        self.loss_type = ["attention"]
         input_type = U.Float32Input if vector_input else U.Uint8Input
+        # input_type = U.Float32Input if vector_input else U.NormalizedUint8Input
         # input_type = U.Uint8Input
         self.hash_func, self.train_func, self.eval_func, self.norm_func, self.attention_func, self.value_func, self.update_target_func = build_train_mer_attention(
+            # self.hash_func, self.train_func, self.eval_func, self.norm_func, self.update_target_func = build_train_mer(
             input_type=input_type,
             obs_shape=obs_shape,
             model_func=model_func,
             num_actions=num_actions,
-            # optimizer=tf.train.AdamOptimizer(learning_rate=lr, epsilon=1e-4),
-            optimizer=tf.train.GradientDescentOptimizer(learning_rate=lr),
+            optimizer=tf.train.AdamOptimizer(learning_rate=lr, epsilon=1e-4),
+            # optimizer=tf.train.GradientDescentOptimizer(learning_rate=lr),
             gamma=gamma,
             grad_norm_clipping=10,
             latent_dim=latent_dim,
             loss_type=self.loss_type,
             batch_size=batch_size,
             num_neg=num_neg,
-            c_loss_type="infonce",
+            c_loss_type="sqmargin",
         )
-        self.contrast_type = "predictive"
+        self.contrast_type = "both"
         self.augment_input_func, self.rand_init_func = build_random_input(input_type=input_type,
                                                                           obs_shape=obs_shape)
         self.finds = [0, 0]
@@ -94,11 +97,11 @@ class MERAttentionAgent(PSMPLearnTargetAgent):
         samples = self.send_and_receive(4, (self.batch_size, self.num_neg, 'uniform'))
         samples_u = self.send_and_receive(4, (self.batch_size, self.num_neg, 'uniform'))
         samples_v = self.send_and_receive(4, (self.batch_size, self.num_neg, 'uniform'))
-        samples_attention = self.send_and_receive(4, (self.batch_size, self.num_neg, 'uniform'))
-        index_u, _, _, _, value_u, _, _, _ = samples_u
-        index_v, _, _, _, value_v, _, _, _ = samples_v
+        samples_attention = self.send_and_receive(4, (self.batch_size, self.num_neg, "uniform"))
+        index_u, _, _, _, q_value_u, _, _, _ = samples_u
+        index_v, _, _, _, q_value_v, _, _, _ = samples_v
         index_tar, index_pos, index_neg, reward_tar, value_tar, action_tar, neighbours_index, neighbours_value = samples
-        index_tar_attention, _, _, _, value_tar_attention, _, _, _ = samples_attention
+        index_tar_attention, _, _, _, q_value_tar_attention, _, _, _ = samples_attention
         if len(index_tar) < self.batch_size:
             return
         obs_tar = [self.replay_buffer[ind] for ind in index_tar]
@@ -151,12 +154,14 @@ class MERAttentionAgent(PSMPLearnTargetAgent):
         if "causality" in self.loss_type:
             input += [reward_tar, action_tar]
         if "weight_product" in self.loss_type:
+            value_u = np.nanmax(np.array(q_value_u), axis=1)
+            value_v = np.nanmax(np.array(q_value_v), axis=1)
             value_u = np.nan_to_num(np.array(value_u))
             value_v = np.nan_to_num(np.array(value_v))
             input += [obs_u, obs_v, obs_u, obs_v, value_u, value_v]
         if "attention" in self.loss_type:
             value_original = self.value_func(np.array(obs_tar_attention))
-            value_tar_attention = np.array(value_tar_attention)
+            value_tar_attention = np.array(q_value_tar_attention)
             value_original = np.array(value_original).squeeze()
             value_tar_attention[np.isnan(value_tar_attention)] = value_original[np.isnan(value_tar_attention)]
             input += [obs_tar_attention, value_tar_attention]
@@ -164,6 +169,24 @@ class MERAttentionAgent(PSMPLearnTargetAgent):
         loss, summary = func(*input)
         # self.log("finish training")
         self.writer.add_summary(summary, global_step=self.steps)
+        if self.debug:
+            self.save_debug(self.debug_dir, obs_tar, obs_pos, obs_neg)
+
+    def save_debug(self, filedir, tar, pos, neg):
+        subdir = os.path.join(filedir, "./debug_sample")
+        if not os.path.isdir(subdir):
+            os.makedirs(os.path.join(subdir, "./tar/"))
+            os.makedirs(os.path.join(subdir, "./pos/"))
+            os.makedirs(os.path.join(subdir, "./neg/"))
+        for i, tar_image in enumerate(tar):
+            cv2.imwrite(os.path.join(subdir, "./tar/", "{}.png".format(i)),
+                        (tar_image * 255))
+        for i, pos_image in enumerate(pos):
+            cv2.imwrite(os.path.join(subdir, "./pos/", "{}.png".format(i)),
+                        (pos_image * 255))
+        for i, neg_image in enumerate(neg):
+            cv2.imwrite(os.path.join(subdir, "./neg/", "{}.png".format(i)),
+                        (neg_image * 255))
 
     def save_attention(self, filedir, step):
         subdir = os.path.join(filedir, "./attention")
@@ -177,9 +200,11 @@ class MERAttentionAgent(PSMPLearnTargetAgent):
         attention = (attention - np.min(attention)) / (np.max(attention) - np.min(attention))
         attention = cv2.resize(attention, (self.obs_shape[0], self.obs_shape[1]))
         print(self.obs_shape)
+
         attention = np.repeat(attention[..., np.newaxis], 3, axis=2)
         # attention[1:, ...] = 1
         image = np.array(self.obs)[0, ..., :3]
+        print("image min max", np.max(image), np.min(image))
         # image = image.transpose((1, 0, 2))
         attentioned_image = image * attention
         if not os.path.isdir(subdir):
@@ -195,7 +220,7 @@ class MERAttentionAgent(PSMPLearnTargetAgent):
                     attention.transpose((1, 0, 2)) * 255)
         cv2.imwrite(os.path.join(subdir, "./image/", "obs_{}.png".format(step)),
                     # image * 255)
-                    image.transpose((1, 0, 2)) * 255)
+                    image.transpose((1, 0, 2)))
 
     def save_neighbour(self, inds):
         self.rand_init_func()

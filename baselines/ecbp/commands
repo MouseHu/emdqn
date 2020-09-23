@@ -8,15 +8,18 @@ CUDA_VISIBLE_DEVICES=6 nohup python train_learning_generalize.py --base_log_dir=
 
 CUDA_VISIBLE_DEVICES=1 python train_learning_generalize.py --base_log_dir=/home/hh/mer/ --log_dir=./tflogs/attn_mk --comment=test_visual --env=mk --env_name=hard --num-steps=40000 --buffer-size=5000 --lr=1e-4 --negative-samples=1
 
-CUDA_VISIBLE_DEVICES=1 python run_visualize_attention.py --base_log_dir=/home/hh/mer/ --load_dir=./agents/08-12-2020-16:02:00 test_visual/ --log_dir=./tflogs/attn_mk --comment=test_visual --env=mk --env_name=hard --num-steps=40000 --buffer-size=5000 --lr=1e-4 --negative-samples=1
+CUDA_VISIBLE_DEVICES=1 python run_visualize_attention.py --base_log_dir=/home/hh/mer/ --load_dir=./agents/attn_mk/08-12-2020-16:02:00 test_visual/ --log_dir=./tflogs/attn_mk --comment=test_visual --env=mk --env_name=hard --num-steps=40000 --buffer-size=5000 --lr=1e-4 --negative-samples=1
 
 CUDA_VISIBLE_DEVICES=1 python train_learning_generalize.py --base_log_dir=/data1/hh/vrf/ --log_dir=./tflogs/attn_coinrun --comment=mask --env=coinrun --env_name=standard --num-steps=400000 --buffer-size=10000 --lr=1e-4 --negative-samples=1
 
 
 
-CUDA_VISIBLE_DEVICES=0 python run_visualize_attention.py --base_log_dir=/data1/hh/vrf/ --load_dir=./agents/09-01-2020-16:15:51_attention_loss+var1e-3_2layers_value_numlevels=1/ --log_dir=./tflogs/attn_coinrun --comment=test_visual --env=coinrun --env_name=standard --num-steps=50000 --buffer-size=10000 --lr=1e-4 --negative-samples=1
+CUDA_VISIBLE_DEVICES=0 python run_visualize_attention.py --base_log_dir=/data1/hh/vrf/ --load_dir=./agents/09-01-2020-16:15:51_attention_loss+var1e-3_2layers_value_numlevels=1/ --log_dir=./tflogs/attn_coinrun --comment=test_visual --env=gw --env_name=fourroomscoin --num-steps=50000 --buffer-size=10000 --lr=1e-4 --negative-samples=1
 
 
 CUDA_VISIBLE_DEVICES=0 python run_debug.py --base_log_dir=/data1/hh/vrf/ --load_dir=./agents/09-02-2020-11:44:05_atten_l2_clipped_var_1e-5/ --log_dir=./tflogs/attn_coinrun --comment=test_visual --env=mk --env_name=hard --num-steps=400000 --buffer-size=5000 --lr=1e-4 --negative-samples=1
 
-09-02-2020-11:44:05_atten_l2_clipped_var_1e-5/
+
+CUDA_VISIBLE_DEVICES=0 python run_visualize_attention.py --base_log_dir=/home/hh/mer/ --load_dir=./agents/09-07-2020-15:00:19_mk_prototype/ --log_dir=./tflogs/attn_mk --comment=l1+reg+contrast --env=mk --env_name=hard --num-steps=200000 --buffer-size=5000 --lr=1e-4 --negative-samples=1
+
+

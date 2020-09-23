@@ -171,6 +171,30 @@ class Uint8Input(PlacholderTfInput):
     def get(self):
         return self._output
 
+
+class NormalizedUint8Input(PlacholderTfInput):
+    def __init__(self, shape, batch_size=None, name=None):
+        """Takes input in uint8 format which is cast to float32 and divided by 255
+        before passing it to the model.
+
+        On GPU this ensures lower data transfer times.
+
+        Parameters
+        ----------
+        shape: [int]
+            shape of the tensor.
+        name: str
+            name of the underlying placeholder
+        """
+
+        super().__init__(tf.placeholder(tf.uint8, [batch_size] + list(shape), name=name))
+        self._shape = shape
+        self._output = tf.cast(super().get(), tf.float32) / 255.0
+        self._output_normalize = self._output - tf.reduce_sum(self._output)
+
+    def get(self):
+        return self._output
+
 class Float32Input(PlacholderTfInput):
 
     def __init__(self, shape, batch_size=None,name=None):

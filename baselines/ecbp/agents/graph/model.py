@@ -363,13 +363,13 @@ def representation_with_mask_model_cnn(img_in, num_actions, scope, reuse=False, 
             #                            padding='same')
             # out = layers.convolution2d(out, num_outputs=64, kernel_size=3, stride=1, activation_fn=tf.nn.leaky_relu,
             #                            padding='same')
-            out = tf.pad(out, tf.constant([[0, 0], [4, 4], [4, 4], [0, 0]]),"REFLECT")
+            out = tf.pad(out, tf.constant([[0, 0], [4, 4], [4, 4], [0, 0]]), "REFLECT")
             out = layers.convolution2d(out, num_outputs=32, kernel_size=8, stride=4, activation_fn=tf.nn.leaky_relu,
                                        padding='valid')
-            out = tf.pad(out, tf.constant([[0, 0], [2, 2], [2, 2], [0, 0]]),"REFLECT")
+            out = tf.pad(out, tf.constant([[0, 0], [2, 2], [2, 2], [0, 0]]), "REFLECT")
             out = layers.convolution2d(out, num_outputs=64, kernel_size=4, stride=2, activation_fn=tf.nn.leaky_relu,
                                        padding='valid')
-            out = tf.pad(out, tf.constant([[0, 0], [1, 1], [1, 1], [0, 0]]),"REFLECT")
+            out = tf.pad(out, tf.constant([[0, 0], [1, 1], [1, 1], [0, 0]]), "REFLECT")
             out = layers.convolution2d(out, num_outputs=64, kernel_size=3, stride=1, activation_fn=tf.nn.leaky_relu,
                                        padding='valid')
 
@@ -380,24 +380,34 @@ def representation_with_mask_model_cnn(img_in, num_actions, scope, reuse=False, 
         # out_mean = tf.reduce_mean(out, axis=3, keepdims=True)
         attention_feature = tf.concat([out_max, out_mean], axis=3)
         # print("attention shape ", attention_feature.shape)
+        # attention_latent = layers.convolution2d(attention_feature, num_outputs=32, kernel_size=1, stride=1,
+        #                                         activation_fn=tf.nn.relu)
         attention = layers.convolution2d(attention_feature, num_outputs=1, kernel_size=1, stride=1,
                                          activation_fn=tf.nn.sigmoid)
 
-        out = tf.multiply(attention, attention_feature)
-        out = layers.flatten(out)
-        # value_latent = layers.fully_connected(out_value, num_outputs=32, activation_fn=tf.nn.relu)
-        value_latent = layers.fully_connected(out, num_outputs=32, activation_fn=tf.nn.leaky_relu)
-        value = layers.fully_connected(value_latent, num_outputs=1, activation_fn=None)
+        attention_max = tf.reduce_max(tf.reduce_max(attention, axis=1, keep_dims=True), axis=2, keep_dims=True)
+        attention_min = tf.reduce_min(tf.reduce_min(attention, axis=1, keep_dims=True), axis=1, keep_dims=True)
+        attention_normalized = (attention - attention_min) / (attention_max - attention_min + 1e-9)
+        soft_out = tf.multiply(attention, out)
+        # out = attention_normalized
+        soft_out = layers.flatten(soft_out)
+        hard_out = tf.multiply(attention_normalized, out)
+        hard_out = layers.flatten(hard_out)
+        # value_latent = layers.fully_connected(out, num_outputs=32, activation_fn=tf.nn.relu)
+        # value_latent = layers.fully_connected(out, num_outputs=32, activation_fn=tf.nn.leaky_relu)
+        # with tf.variable_scope("value_regression"):
+        value = layers.fully_connected(soft_out, num_outputs=num_actions, activation_fn=None)
 
-        out = layers.fully_connected(out, num_outputs=32, activation_fn=tf.nn.leaky_relu)
-        contrast_z = layers.fully_connected(out, num_outputs=32, activation_fn=None)
+        out_z = layers.fully_connected(hard_out, num_outputs=32, activation_fn=tf.nn.leaky_relu)
+        z = layers.fully_connected(out_z, num_outputs=32, activation_fn=None)
 
         # normalized_out = layers.flatten(normalized_out)
         # hash = layers.fully_connected(normalized_out, num_outputs=32, activation_fn=None)
         # print("???",hash.shape)
         if unit:
-            contrast_z = contrast_z / tf.maximum(1e-8, tf.norm(contrast_z, axis=1, keepdims=True))
+            contrast_z = z / tf.maximum(1e-10, tf.norm(z, axis=1, keepdims=True))
         return attention, value, contrast_z, contrast_z
+        # return contrast_z
 
 
 def unit_representation_model_mlp(obs_in, num_actions, scope, reuse=False):

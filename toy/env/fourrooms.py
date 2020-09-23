@@ -31,7 +31,8 @@ class Fourrooms(object):
 1111111111111
 """
         self.block_size = 8
-        self.occupancy = np.array([list(map(lambda c: 1 if c == '1' else 0, line)) for line in self.layout.splitlines()])
+        self.occupancy = np.array(
+            [list(map(lambda c: 1 if c == '1' else 0, line)) for line in self.layout.splitlines()])
         self.num_pos = int(np.sum(self.occupancy == 0))
         # From any state the agent can perform one of four actions, up, down, left or right
         self.action_space = spaces.Discrete(4)
@@ -71,6 +72,7 @@ class Fourrooms(object):
         self.metadata = None
         self.done = False
         self.allow_early_resets = True
+        self.unwrapped = self
 
     def make_blocks(self):
         blocks = []
@@ -98,7 +100,7 @@ class Fourrooms(object):
                 avail.append(nextcell)
         return avail
 
-    def reset(self,state = -1):
+    def reset(self, state=-1):
         # state = self.rng.choice(self.init_states)
         # self.viewer.close()
         if state < 0:
@@ -185,6 +187,9 @@ class Fourrooms(object):
 
         return arr
 
+    def seed(self, seed):
+        pass
+
     def close(self):
         pass
 
@@ -198,3 +203,28 @@ class Fourrooms(object):
 #     timestep_limit=20000,
 #     reward_threshold=1,
 # )
+
+
+class ImageInputWarpper(gym.Wrapper):
+
+    def __init__(self, env, max_steps=100):
+        gym.Wrapper.__init__(self, env)
+        screen_height = self.env.block_size * len(self.env.occupancy)
+        screen_width = self.env.block_size * len(self.env.occupancy[0])
+        self.observation_space = spaces.Box(low=0, high=255, shape=(screen_height, screen_width, 3))
+        self.num_steps = 0
+        self.max_steps = max_steps
+
+    def step(self, action):
+        state, reward, done, info = self.env.step(action)
+        self.num_steps += 1
+        if self.num_steps >= self.max_steps:
+            done = True
+        obs = self.env.render()
+        return obs, reward, done, info
+
+    def reset(self):
+        self.num_steps = 0
+        self.env.reset()
+        obs = self.env.render()
+        return obs

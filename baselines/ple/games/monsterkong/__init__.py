@@ -31,6 +31,9 @@ class MonsterKong(PyGameWrapper):
             self.width = 300
         else:
             self.map_array = map_config['map_array']
+            # print("map array")
+            # print(self.map_array)
+            # print(len(self.map_array),len(self.map_array[0]))
             self.height = 15 * len(self.map_array)
             self.width = 15 * len(self.map_array[0])
 
@@ -72,8 +75,8 @@ class MonsterKong(PyGameWrapper):
         self.noiseimage = None
         self.noise_size = noise_size
         self.random_noise = None
-        random_range = 0
-        if random_range <= 0:
+        random_range=40
+        if random_range <= 0 or not self.noisy_background:
             self.random_noise = np.zeros((self.noise_size, self.width, self.height, 3))
         else:
             self.random_noise = np.random.randint(-random_range // 2, random_range // 2,

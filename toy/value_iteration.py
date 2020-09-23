@@ -1,6 +1,7 @@
 import numpy as np
 from toy.dataset import ValueDataset
 
+
 def value_iteration(env, gamma=0.99):
     try:
         num_state = env.observation_space.shape[0]
@@ -32,14 +33,18 @@ def value_iteration(env, gamma=0.99):
     # print(rewards)
     # print(transition)
     print(values)
-    return values
+    return values, rewards, transition
 
 
-
-def gen_dataset_with_value_iteration(env,device):
-
-    values = value_iteration(env)
-    print("value variance:",np.var(values))
+def gen_dataset_with_value_iteration(env, device):
+    gamma = 0.99
+    values, rewards, transition = value_iteration(env,gamma)
+    q_value = np.zeros_like(transition)
+    for s in range(len(q_value)):
+        for a in range(len(q_value[0])):
+            s_tp1 = int(transition[s,a])
+            q_value[s,a] = gamma*values[s_tp1]+rewards[s,a]
+    print("value variance:", np.var(values))
     obs = []
     for s in range(len(values)):
         env.reset(s)
@@ -48,4 +53,4 @@ def gen_dataset_with_value_iteration(env,device):
     obs = np.array(obs)
     # dataset = zip(obs,values)
 
-    return ValueDataset(obs,values,device)
+    return ValueDataset(obs, q_value, device), transition

@@ -86,7 +86,8 @@ if __name__ == '__main__':
             else:
                 eval_iters += 1
             # Take action and store transition in the replay buffer.
-            action = agent.act(np.array(obs)[None], is_train=not eval)
+            _ = agent.act(np.array(obs)[None], is_train=not eval)
+            action = np.random.randint(0,num_actions)
             agent.save_attention(os.path.join(args.base_log_dir, args.load_dir), num_iters)
             act_time += time.time() - cur_time
             cur_time = time.time()

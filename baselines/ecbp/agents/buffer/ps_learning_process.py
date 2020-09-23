@@ -47,7 +47,6 @@ class PSLearningProcess(Process):
         self.use_density = density
         self.ec_buffer = None
 
-
     def log(self, *args, logtype='debug', sep=' '):
         getattr(self.logger, logtype)(sep.join(str(a) for a in args))
 
@@ -60,7 +59,6 @@ class PSLearningProcess(Process):
             index_tp1, override = self.ec_buffer.add_node(z_tp1, knn_dist, knn_ind)
             # index_tp1, override = self.ec_buffer.add_node(z_tp1)
 
-
             # self.log("add node", index_tp1, logtype='debug')
             if override:
                 self.pqueue.remove(index_tp1)
@@ -72,7 +70,6 @@ class PSLearningProcess(Process):
         # if sa_coun t > self.sa_explore:
         #     self.ec_buffer.internal_value[index_t, action_t] = 0
         return index_tp1, sa_count
-
 
     def save(self, filedir):
         while len(self.pqueue) > 0:  # empty pqueue
@@ -96,7 +93,6 @@ class PSLearningProcess(Process):
             # print(z_to_update.shape,np.arange(low, high))
             # self.log("z shape", np.array(z_to_update).shape)
             self.ec_buffer.update(np.arange(low, high), np.array(z_to_update))
-
 
     def observe(self, sa_pair):
         # self.update_enough.wait(timeout=1000)
@@ -150,7 +146,6 @@ class PSLearningProcess(Process):
             # self.log("add queue", priority, len(self.pqueue))
         # self.iters_per_step = 0
         # self.update_enough.clear()
-
 
         assert index_tp1 != -1
         self.conn.send((2, index_tp1))
@@ -224,14 +219,12 @@ class PSLearningProcess(Process):
         z, h, knn = obj
 
         extrinsic_qs, intrinsic_qs, find, neighbour_ind = self.ec_buffer.act_value_ec(z, knn)
-        self.conn.send((0, (extrinsic_qs, intrinsic_qs, find,neighbour_ind)))
-
+        self.conn.send((0, (extrinsic_qs, intrinsic_qs, find, neighbour_ind)))
 
     def peek_node(self, obj):
         z, h = obj
         ind, knn_dist, knn_ind = self.ec_buffer.peek(z)
         if ind == -1:
-
             ind, _ = self.ec_buffer.add_node(z, knn_dist, knn_ind)
             # ind, _ = self.ec_buffer.add_node(z)
 

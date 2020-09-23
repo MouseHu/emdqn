@@ -3,6 +3,7 @@ from torch import nn
 from torch import optim
 import numpy as np
 
+
 def acos_safe(x, eps=1e-4):
     slope = np.arccos(1 - eps) / eps
     # TODO: stop doing this allocation once sparse gradients with NaNs (like in
@@ -111,7 +112,7 @@ class SimpleNet(nn.Module):
 
 
 class AttentionNet(nn.Module):
-    def __init__(self, input_size,device):
+    def __init__(self, input_size, device):
         super(AttentionNet, self).__init__()
         self.conv1 = nn.Conv2d(in_channels=3, out_channels=32, kernel_size=8, stride=4, padding=0)
         self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2, padding=0)
@@ -120,30 +121,34 @@ class AttentionNet(nn.Module):
         self.padding1 = nn.ReflectionPad2d(2)
         self.padding2 = nn.ReflectionPad2d(1)
         self.padding3 = nn.ReflectionPad2d(1)
-        self.attention_conv = nn.Conv2d(in_channels=2, out_channels=1, kernel_size=1, stride=1)
+        self.attention_conv = nn.Conv2d(in_channels=4, out_channels=1, kernel_size=1, stride=1)
         self.normalize_attention = True
-        self.coordinate = torch.arange(-input_size // 2, input_size // 2) / (input_size + 0.0)
+        self.coordinate = torch.arange(-input_size // 2, input_size // 2, requires_grad=False) / (input_size + 0.0)
         print(self.coordinate)
         self.mesh_x, self.mesh_y = torch.meshgrid([self.coordinate, self.coordinate])
         self.mesh_x = torch.unsqueeze(torch.unsqueeze(self.mesh_x, 0), 0).to(device)
+        # self.mesh_x
         self.mesh_y = torch.unsqueeze(torch.unsqueeze(self.mesh_y, 0), 0).to(device)
         # self.value_fc_1 = nn.Linear(input_size, 32)
         # self.value_fc_2 = nn.Linear(32, 64)
         # self.value_fc_3 = nn.Linear(64, 128)
-        self.value_fc_4 = nn.Linear(input_size ** 2, 1)
+        self.value_fc_4 = nn.Linear(input_size ** 2, 4)
+        self.contra_fc = nn.Linear(input_size ** 2, 32)
         self.input_size = input_size
+        self.device = device
+        self.zero = torch.tensor([0.], requires_grad=False).to(self.device)
 
     def forward(self, x):
         batch_size = x.shape[0]
-        feature_map_1 = nn.LeakyReLU()(self.padding1(self.conv1(x)))
-        feature_map_2 = nn.LeakyReLU()(self.padding2(self.conv2(feature_map_1)))
-        feature_map_3 = nn.LeakyReLU()(self.padding3(self.conv3(feature_map_2)))
+        feature_map_1 = nn.ReLU()(self.padding1(self.conv1(x)))
+        feature_map_2 = nn.ReLU()(self.padding2(self.conv2(feature_map_1)))
+        feature_map_3 = nn.ReLU()(self.padding3(self.conv3(feature_map_2)))
 
         feature_max, _ = torch.max(feature_map_3, dim=1, keepdim=True)
         feature_mean = torch.mean(feature_map_3, dim=1, keepdim=True)
-        feature_x = self.mesh_x.repeat(batch_size,1,1,1)
-        feature_y = self.mesh_y.repeat(batch_size,1,1,1)
-        attention_feature = torch.cat([feature_max, feature_mean], dim=1)
+        feature_x = self.mesh_x.repeat(batch_size, 1, 1, 1)
+        feature_y = self.mesh_y.repeat(batch_size, 1, 1, 1)
+        attention_feature = torch.cat([feature_max, feature_mean, feature_x, feature_y], dim=1)
         attention_mask = nn.Sigmoid()(self.attention_conv(attention_feature))
 
         # if self.normalize_attention:
@@ -159,19 +164,42 @@ class AttentionNet(nn.Module):
         value = self.value_fc_4(out_feature_flatten)
         return attention_mask, value, out_feature
 
+    def contrast_loss_func(self, obs_tar, obs_pos, obs_neg):
+        # print(obs_tar.shape)
+        feature_tar, feature_pos, feature_neg = self(obs_tar)[2], self(obs_pos)[2], self(obs_neg)[2]
+        # print(feature_tar)
+        feature_tar = torch.flatten(feature_tar, start_dim=1)
+        feature_pos = torch.flatten(feature_pos, start_dim=1)
+        feature_neg = torch.flatten(feature_neg, start_dim=1)
+        feature_tar, feature_pos, feature_neg = self.contra_fc(feature_tar), self.contra_fc(
+            feature_pos), self.contra_fc(feature_neg)
+
+        # print(feature_tar.shape)
+
+        def l2_dist(x, y):
+            return torch.sqrt(torch.mean((x - y) ** 2, dim=1) + 1e-12)
+
+        dist_diff = torch.max(self.zero, l2_dist(feature_tar, feature_neg) - l2_dist(feature_tar, feature_pos) + 1.)
+        dist_diff_sym = torch.max(self.zero, l2_dist(feature_pos, feature_neg) - l2_dist(feature_tar, feature_pos) + 1.)
+        # contrast_loss = torch.max(torch.tensor([0.],requires_grad=False).to(self.device),dist_diff) + torch.max(torch.tensor([0.],requires_grad=False).to(self.device),dist_diff_sym)
+        contrast_loss = dist_diff + dist_diff_sym
+        # print(contrast_loss.shape)
+        # contrast_loss = feature_tar.sum() + feature_pos.sum() + feature_neg.sum()
+        return contrast_loss.mean()
+
     def loss_func(self, attention, value_p, value_gt):
         value_p = value_p.squeeze()
         # encoder_loss = torch.mean((value_p - value_gt) ** 2)
         # encoder_loss = nn.MSELoss()(value_p,value_gt) +
-        encoder_loss = nn.MSELoss()(value_p,value_gt)
+        decoder_loss = nn.MSELoss()(value_p, value_gt)
         if self.normalize_attention:
             attention_max = attention.max()
             attention_min = attention.min()
             attention = (attention - attention_min) / (attention_max - attention_min + 1e-12)
         attention = torch.flatten(attention, start_dim=1)
         # attention_var= torch.var(attention)
-        decoder_loss = torch.norm(attention, p=1) / self.input_size
+        encoder_loss = torch.norm(attention, p=1,dim=1) / self.input_size**2
 
         # total_loss = encoder_loss + 1e-2 * decoder_loss
 
-        return encoder_loss, decoder_loss
+        return encoder_loss.mean(), decoder_loss

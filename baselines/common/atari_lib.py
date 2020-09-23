@@ -965,3 +965,38 @@ class NoisyEnv(gym.Wrapper):
         noise = self.noisy_var * np.random.randn(self.noisy_dim)
         new_obs = np.concatenate((noise, obs))
         return new_obs
+
+
+class ImageNoisyEnv(gym.Wrapper):
+    def __init__(self, env, noisy_dim, noisy_var):
+        super(ImageNoisyEnv, self).__init__(env)
+        assert noisy_dim >= 0 and noisy_var >= 0
+        assert type(env.observation_space) is gym.spaces.Box
+        obs_shape = env.observation_space.low.shape
+        self.noisy_dim = noisy_dim
+        self.noisy_var = noisy_var
+        self.noise = np.random.randint(-noisy_var // 2, noisy_var // 2, size=(noisy_dim,) + obs_shape)
+        # self.noisy_var = noisy_var
+        # low = np.concatenate((-10 * noisy_var * np.ones(noisy_dim), env.observation_space.low))
+        # high = np.concatenate((-10 * noisy_var * np.ones(noisy_dim), env.observation_space.high))
+        # self.observation_space = gym.spaces.Box(low, high)
+
+    def step(self, action):
+        obs, reward, done, info = self.env.step(action)
+        noise = self.noise[np.random.randint(0, self.noisy_dim,dtype=np.int)]
+
+        new_obs = np.array(np.maximum(np.minimum(255, noise + obs), 0))
+        new_obs = new_obs.astype(np.uint8)
+        return new_obs, reward, done, info
+
+    def reset(self):
+        obs = self.env.reset()
+        # print("obs",np.max(obs),np.min(obs))
+        noise = self.noise[np.random.randint(0, self.noisy_dim,dtype=np.int)]
+        # print(self.noise[0])
+        # new_obs = np.array()
+
+        new_obs = np.array(np.maximum(np.minimum(255, noise + obs), 0))
+        new_obs = new_obs.astype(np.uint8)
+        # print("new obs", np.max(new_obs), np.min(new_obs))
+        return new_obs

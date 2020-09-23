@@ -14,6 +14,7 @@ from baselines.ecbp.agents.kbps_mp_agent import KBPSMPAgent
 from baselines.ecbp.agents.ec_debug_agent import ECDebugAgent
 from baselines.ecbp.agents.kbps_agent import KBPSAgent
 from baselines.ecbp.agents.ec_agent import ECAgent
+from baselines.ecbp.agents.ec_learning_agent import ECLearningAgent
 from baselines.ecbp.agents.human_agent import HumanAgent
 from baselines.ecbp.agents.hybrid_agent import HybridAgent, HybridAgent2
 from baselines.ecbp.agents.graph.build_graph_contrast_target import *
@@ -31,8 +32,9 @@ if __name__ == '__main__':
     vars(args).update({'noise_size': 1})
     train_env = create_env(args)
     vars(args).update({'number': 2})
-    # vars(args).update({'env_name': "hard"})
-    vars(args).update({'noise_size': 10})
+    # vars(args).update({'env_name': "large_2"})
+    vars(args).update({'env_name': "fourrooms_noise"})
+    vars(args).update({'noise_size': 10000})
 
     test_env = create_env(args)
     # env = GIFRecorder(video_path=args.video_path + "/{}/".format(args.comment), record_video=True, env=env)
@@ -73,8 +75,9 @@ if __name__ == '__main__':
     # agent = ec_agent
     # ps_agent = ECDebugAgent(rp_model if args.rp else contrastive_model,
     # ps_agent = PSMPLearnTargetAgent(
-    #     representation_model_mlp if args.vector_input else unit_representation_model_cnn,
+        # representation_model_mlp if args.vector_input else unit_representation_model_cnn,
     ps_agent = MERAttentionAgent(
+        # ps_agent = ECLearningAgent(
         representation_model_mlp if args.vector_input else representation_with_mask_model_cnn,
         # bvae_encoder,bvae_decoder,
         # rp_model if args.rp else contrastive_model ,
@@ -83,6 +86,7 @@ if __name__ == '__main__':
         args.lr,
         args.buffer_size, num_actions, args.latent_dim, args.gamma, args.knn,
         args.eval_epsilon, args.queue_threshold, args.batch_size, args.density, args.trainable, args.negative_samples,
+        # debug=True, debug_dir=agentdir,
         tf_writer=tf_writer)
     # ps_agent = KBPSMPAgent(representation_model_mlp if args.vector_input else representation_model_cnn,
     #                                 # ps_agent = PSMPLearnTargetAgent(rp_model if args.rp else contrastive_model ,

@@ -31,9 +31,9 @@ if __name__ == '__main__':
     env = create_env(args)
     print("finish create env")
     subdir = (datetime.datetime.now()).strftime("%m-%d-%Y-%H:%M:%S") + "_" + args.comment
-    make_logger("ecbp", os.path.join(args.base_log_dir, args.load_dir, "ecbp_logger.log"),stream_level=logging.DEBUG)
+    make_logger("ecbp", os.path.join(args.base_log_dir, args.load_dir, "ecbp_logger.log"),stream_level=logging.INFO)
     make_logger("ec", os.path.join(args.base_log_dir, args.load_dir, "ec_logger.log"),stream_level=logging.INFO)
-    tfdir = os.path.join(args.base_log_dir, args.log_dir, subdir)
+    tfdir = os.path.    join(args.base_log_dir, args.log_dir, subdir)
     agentdir = os.path.join(args.base_log_dir, args.agent_dir, subdir)
     tf_writer = tf.summary.FileWriter(tfdir, tf.get_default_graph())
     exploration = PiecewiseSchedule([
@@ -77,15 +77,15 @@ if __name__ == '__main__':
         ps_agent.load(filedir=os.path.join(args.base_log_dir, args.load_dir), sess=sess, saver=saver, num_steps=args.num_steps,load_model=False)
         agent.steps = 0
         while True:
-            num_iters += 1
+            num_iters += 4
             agent.train()
-            agent.steps += 1
-            if num_iters > 100000:
+            agent.steps += 4
+            if num_iters > args.num_steps:
                 agent.finish()
                 break
-            if num_iters % 100 == 0:
+            if num_iters % 400 == 0:
                 print("num iters: ",num_iters)
-            if num_iters % 20000 == 0:
+            if num_iters % 100000 == 0:
                 print("begin testing attention")
                 done = False
                 eval_iters= 0
@@ -95,7 +95,7 @@ if __name__ == '__main__':
                     agent.steps += 1
                     # Take action and store transition in the replay buffer.
                     action = agent.act(np.array(obs)[None], is_train=False)
-                    agent.save_attention(agentdir, num_iters)
+                    agent.save_attention(agentdir, agent.steps)
                     obs, rew, done, info = env.step(action)
                     agent.observe(action, rew, obs, done, train=False)
                 agent.steps = num_iters
