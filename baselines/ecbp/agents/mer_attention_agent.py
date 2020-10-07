@@ -63,7 +63,7 @@ class MERAttentionAgent(PSMPLearnTargetAgent):
         self.buffer_capacity = 0
         self.trainable = trainable
         self.num_neg = num_neg
-        self.loss_type = ["attention"]
+        self.loss_type = ["contrast"]
         input_type = U.Float32Input if vector_input else U.Uint8Input
         # input_type = U.Float32Input if vector_input else U.NormalizedUint8Input
         # input_type = U.Uint8Input
@@ -83,16 +83,16 @@ class MERAttentionAgent(PSMPLearnTargetAgent):
             num_neg=num_neg,
             c_loss_type="sqmargin",
         )
-        self.contrast_type = "both"
+        self.contrast_type = "predictive"
         self.augment_input_func, self.rand_init_func = build_random_input(input_type=input_type,
                                                                           obs_shape=obs_shape)
         self.finds = [0, 0]
-
+        print("writer",self.writer)
         self.ec_buffer.start()
 
     def train(self):
         # sample
-        # self.log("begin training")
+        self.log("begin training")
 
         samples = self.send_and_receive(4, (self.batch_size, self.num_neg, 'uniform'))
         samples_u = self.send_and_receive(4, (self.batch_size, self.num_neg, 'uniform'))
@@ -102,6 +102,7 @@ class MERAttentionAgent(PSMPLearnTargetAgent):
         index_v, _, _, _, q_value_v, _, _, _ = samples_v
         index_tar, index_pos, index_neg, reward_tar, value_tar, action_tar, neighbours_index, neighbours_value = samples
         index_tar_attention, _, _, _, q_value_tar_attention, _, _, _ = samples_attention
+        self.log("finish sampling")
         if len(index_tar) < self.batch_size:
             return
         obs_tar = [self.replay_buffer[ind] for ind in index_tar]
@@ -167,7 +168,7 @@ class MERAttentionAgent(PSMPLearnTargetAgent):
             input += [obs_tar_attention, value_tar_attention]
         func = self.train_func if self.steps < self.burnout else self.eval_func
         loss, summary = func(*input)
-        # self.log("finish training")
+        self.log("finish training")
         self.writer.add_summary(summary, global_step=self.steps)
         if self.debug:
             self.save_debug(self.debug_dir, obs_tar, obs_pos, obs_neg)
@@ -179,13 +180,13 @@ class MERAttentionAgent(PSMPLearnTargetAgent):
             os.makedirs(os.path.join(subdir, "./pos/"))
             os.makedirs(os.path.join(subdir, "./neg/"))
         for i, tar_image in enumerate(tar):
-            cv2.imwrite(os.path.join(subdir, "./tar/", "{}.png".format(i)),
+            cv2.imwrite(os.path.join(subdir, "./tar/{}".format(self.steps), "{}.png".format(i)),
                         (tar_image * 255))
         for i, pos_image in enumerate(pos):
-            cv2.imwrite(os.path.join(subdir, "./pos/", "{}.png".format(i)),
+            cv2.imwrite(os.path.join(subdir, "./pos/{}".format(self.steps), "{}.png".format(i)),
                         (pos_image * 255))
         for i, neg_image in enumerate(neg):
-            cv2.imwrite(os.path.join(subdir, "./neg/", "{}.png".format(i)),
+            cv2.imwrite(os.path.join(subdir, "./neg/{}".format(self.steps), "{}.png".format(i)),
                         (neg_image * 255))
 
     def save_attention(self, filedir, step):
@@ -222,16 +223,18 @@ class MERAttentionAgent(PSMPLearnTargetAgent):
                     # image * 255)
                     image.transpose((1, 0, 2)))
 
-    def save_neighbour(self, inds):
+    def save_neighbour(self, inds, dists):
         self.rand_init_func()
         save_path = os.path.join(self.debug_dir, "./neighbour/{}".format(self.steps))
         if not os.path.exists(save_path):
             os.makedirs(save_path)
         print(inds)
-        for ind in inds:
+        for i, neighbour in enumerate(zip(inds, dists)):
+            ind, dist = neighbour
             assert 0 <= ind <= self.cur_capacity, "ind:{},cur_capacity:{}".format(ind, self.cur_capacity)
-            augmented_image = self.augment_input_func(self.replay_buffer[ind:ind + 1])[0][0]
-            print(augmented_image.shape)
-            cv2.imwrite(os.path.join(save_path, "{}.png".format(ind)), self.replay_buffer[ind].transpose(1, 0, 2))
-            cv2.imwrite(os.path.join(save_path, "{}_augmented.png".format(ind)),
-                        (augmented_image * 255).transpose(1, 0, 2))
+            # augmented_image = self.augment_input_func(self.replay_buffer[ind:ind + 1])[0][0]
+            # print(augmented_image.shape)
+            cv2.imwrite(os.path.join(save_path, "{}_{}_{}.png".format(i, dist,ind)),
+                        self.replay_buffer[ind].transpose(1, 0, 2))
+            # cv2.imwrite(os.path.join(save_path, "{}_augmented.png".format(ind)),
+            #             (augmented_image * 255).transpose(1, 0, 2))

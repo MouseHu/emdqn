@@ -1,6 +1,5 @@
 from pyvirtualdisplay import Display
 
-
 # display = Display(visible=1, size=(960, 640))
 # display.start()
 
@@ -71,7 +70,6 @@ if __name__ == '__main__':
     except AttributeError:
         num_actions = env.unwrapped.pseudo_action_space.n
 
-
     obs_shape = env.observation_space.shape
     print("here", env.observation_space)
     if obs_shape is None or obs_shape == (None,):
@@ -97,7 +95,7 @@ if __name__ == '__main__':
         args.lr,
         args.buffer_size, num_actions, args.latent_dim, args.gamma, args.knn,
         args.eval_epsilon, args.queue_threshold, args.batch_size, args.density, args.trainable, args.negative_samples,
-        tf_writer)
+        tf_writer=tf_writer)
 
     # ps_agent = KBPSMPAgent(representation_model_mlp if args.vector_input else representation_model_cnn,
     #                                 # ps_agent = PSMPLearnTargetAgent(rp_model if args.rp else contrastive_model ,
@@ -126,7 +124,6 @@ if __name__ == '__main__':
 
         U.initialize()
         saver = tf.train.Saver()
-
 
         # initialize agent
         if args.load_dir is not None:
@@ -171,8 +168,7 @@ if __name__ == '__main__':
             update_time += time.time() - cur_time
             cur_time = time.time()
 
-
-            if num_iters % 10000 == 0:
+            if num_iters % 100000 == 0:
                 # print(tf.global_variables())
                 # with tf.variable_scope("mfec", reuse=True):
                 #     magic_num = tf.get_variable("magic")
@@ -205,7 +201,6 @@ if __name__ == '__main__':
                 steps_per_iter.update(1)
                 iteration_time_est.update(time.time() - start_time)
             start_time = time.time()
-
 
             if num_iters > args.num_steps and done:
                 buffertest(agent, subdir)

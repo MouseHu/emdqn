@@ -14,7 +14,7 @@ from baselines import deepq
 from toy.env.fourrooms import Fourrooms
 from toy.env.fourrooms_withcoin import FourroomsCoin
 from toy.env.fourrooms import ImageInputWarpper
-# from baselines.ecbp.env.tworooms import Tworooms
+from baselines.ecbp.env.tworooms import Tworooms
 from baselines.common.atari_wrappers_deprecated import FrameStack
 from baselines.common.atari_lib import MKPreprocessing
 from baselines.common.atari_lib import CropWrapper
@@ -209,11 +209,11 @@ def create_env(args):
         if args.env_name == "fourrooms":
             env = ImageInputWarpper(Fourrooms())
         elif args.env_name == "fourrooms_noise":
-            env = ImageNoisyEnv(ImageInputWarpper(Fourrooms()), args.noise_size, 100)
+            env = ImageNoisyEnv(ImageInputWarpper(Fourrooms()), args.noise_size, 400)
         elif args.env_name == "fourroomscoin":
             env = ImageInputWarpper(FourroomsCoin())
         else:
-            env = ImageNoisyEnv(ImageInputWarpper(FourroomsCoin()), args.noise_size, 100)
+            env = ImageNoisyEnv(ImageInputWarpper(FourroomsCoin()), args.noise_size, 400)
     elif args.env == "doom" or args.env == "Doom":
         params = load_params(args.param_dir, args.env_name)
         env = DoomEnvironment(**params['env_params'])

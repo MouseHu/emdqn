@@ -218,8 +218,8 @@ class PSLearningProcess(Process):
     def retrieve_q_value(self, obj):
         z, h, knn = obj
 
-        extrinsic_qs, intrinsic_qs, find, neighbour_ind = self.ec_buffer.act_value_ec(z, knn)
-        self.conn.send((0, (extrinsic_qs, intrinsic_qs, find, neighbour_ind)))
+        extrinsic_qs, intrinsic_qs, find, neighbour_ind,neighbour_dist = self.ec_buffer.act_value_ec(z, knn)
+        self.conn.send((0, (extrinsic_qs, intrinsic_qs, find, neighbour_ind,neighbour_dist)))
 
     def peek_node(self, obj):
         z, h = obj

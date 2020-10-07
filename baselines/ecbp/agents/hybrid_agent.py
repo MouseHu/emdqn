@@ -45,7 +45,7 @@ class HybridAgent2(object):
 
     def act(self, obs, is_train=True):
         # print("input action:",end=" ")
-        if is_train and self.episode_count == 0:
+        if not is_train and self.episode_count == 0:
 
             self.agent2.act(obs, is_train,debug=True)
             return self.agent1.act(obs, is_train)
@@ -61,7 +61,7 @@ class HybridAgent2(object):
         self.agent2.observe(action, reward, obs, done, train)
 
         if done:
-            if train:
+            if not train:
                 self.episode_count -= 1
                 if self.episode_count <= 0:
                     try:

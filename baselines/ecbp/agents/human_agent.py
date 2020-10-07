@@ -8,10 +8,12 @@ class HumanAgent(object):
 
     def act(self, obs, is_train=True):
         print("input action:",end=" ")
-        char = readchar.readkey()
+        action = -1
+        while action<0:
+            char = readchar.readkey()
         # char = input("input action:")
-        action = self.keyboard_config.get(char, 5)
-        print(" ")
+            action = self.keyboard_config.get(char, -1)
+            print(" ")
         return action
 
     def observe(self, action, reward, obs, done, train=True):

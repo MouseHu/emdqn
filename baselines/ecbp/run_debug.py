@@ -20,6 +20,7 @@ from baselines.ecbp.test.buffer_test import buffertest
 import sys
 import logging
 from baselines.ecbp.agents.mer_bvae_attention_agent import BVAEAttentionAgent
+
 sys.setrecursionlimit(30000)
 # from gym.wrappers.monitoring.video_recorder import VideoRecorder
 
@@ -31,8 +32,8 @@ if __name__ == '__main__':
     env = create_env(args)
     print("finish create env")
     subdir = (datetime.datetime.now()).strftime("%m-%d-%Y-%H:%M:%S") + "_" + args.comment
-    make_logger("ecbp", os.path.join(args.base_log_dir, args.load_dir, "ecbp_logger.log"),stream_level=logging.DEBUG)
-    make_logger("ec", os.path.join(args.base_log_dir, args.load_dir, "ec_logger.log"),stream_level=logging.INFO)
+    make_logger("ecbp", os.path.join(args.base_log_dir, args.load_dir, "ecbp_logger.log"), stream_level=logging.DEBUG)
+    make_logger("ec", os.path.join(args.base_log_dir, args.load_dir, "ec_logger.log"), stream_level=logging.INFO)
 
     exploration = PiecewiseSchedule([
         (0.1, 1),
@@ -61,11 +62,12 @@ if __name__ == '__main__':
         args.lr,
         args.buffer_size, num_actions, args.latent_dim, args.gamma, args.knn,
         args.eval_epsilon, args.queue_threshold, args.batch_size, args.density, False, args.negative_samples,
-        debug=True,debug_dir=os.path.join(args.base_log_dir, args.load_dir),
+        debug=True, debug_dir=os.path.join(args.base_log_dir, args.load_dir),
         tf_writer=None)
     human_agent = HumanAgent(
-        {"w": 3, "s": 4, "d": 1, "a": 0, "x": 2, "p": 5, "3": 3, "4": 4, "1": 1, "0": 0, "2": 2, "5": 5})
-    agent = HybridAgent2(human_agent,ps_agent)
+        # {"w": 3, "s": 4, "d": 1, "a": 0, "x": 2, "p": 5, "3": 3, "4": 4, "1": 1, "0": 0, "2": 2, "5": 5})
+        {"3": 3, "1": 1, "0": 0, "2": 2})
+    agent = HybridAgent2(human_agent, ps_agent)
 
     with U.make_session(4) as sess:
         # EMDQN
@@ -81,13 +83,14 @@ if __name__ == '__main__':
         steps_per_iter, iteration_time_est = RunningAvg(0.999, 1), RunningAvg(0.999, 1)
         print("before reset")
         obs = env.reset()
-        ps_agent.load(filedir=os.path.join(args.base_log_dir, args.load_dir), sess=sess, saver=saver, num_steps=args.num_steps)
+        ps_agent.load(filedir=os.path.join(args.base_log_dir, args.load_dir), sess=sess, saver=saver,
+                      num_steps=args.num_steps)
         print("in main ", obs)
         print_flag = True
         # Main training loop
         train_time, act_time, env_time, update_time, cur_time = 0, 0, 0, 0, time.time()
         while True:
-            eval = False
+            eval = True
             if not eval:
                 num_iters += 1
             else:
@@ -103,8 +106,9 @@ if __name__ == '__main__':
                 env.render()
             env_time += time.time() - cur_time
             cur_time = time.time()
-
+            ps_agent.steps += 1
             agent.observe(action, rew, new_obs, done, train=not eval)
+            ps_agent.save_attention(os.path.join(args.base_log_dir, args.load_dir), eval_iters)
             update_time += time.time() - cur_time
             cur_time = time.time()
 

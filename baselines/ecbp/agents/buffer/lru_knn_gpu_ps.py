@@ -163,7 +163,7 @@ class LRU_KNN_GPU_PS(object):
             external_values.append(external_value)
             internal_values.append(internal_value)
 
-        return external_values, internal_values, np.array(exact_refer), ind
+        return external_values, internal_values, np.array(exact_refer), ind,dist
 
     def act_value_ec(self, key, knn):
         knn = min(self.curr_capacity // self.num_actions, knn)
@@ -211,7 +211,7 @@ class LRU_KNN_GPU_PS(object):
                 self.log("dist", external_values_dist[:knn_a])
                 self.log("coeff", coeff)
 
-        return [external_value], [internal_value], exact_refer, ind[0][:knn]
+        return [external_value], [internal_value], exact_refer, ind[0][:knn],dist[0][:knn]
 
     def add_edge(self, src, des, action, reward, done):
         if (src, action) not in self.prev_id[des]:

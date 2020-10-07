@@ -269,13 +269,13 @@ class PSMPLearnTargetAgent(object):
         else:
             # finds = np.zeros((1,))
 
-            extrinsic_qs, intrinsic_qs, find, inds = self.send_and_receive(0, (np.array([self.z]), None, self.knn))
+            extrinsic_qs, intrinsic_qs, find, inds, dists = self.send_and_receive(0, (np.array([self.z]), None, self.knn))
             extrinsic_qs, intrinsic_qs = np.array(extrinsic_qs), np.array(intrinsic_qs)
             inds = np.array(inds).reshape(-1)
             # print("debug? ",len(inds),debug)
             if len(inds) > 1 and debug:
                 print("saving neightbour")
-                self.save_neighbour(inds)
+                self.save_neighbour(inds,dists)
             self.finds[0] += sum(find)
             self.finds[1] += 1
 
@@ -298,14 +298,15 @@ class PSMPLearnTargetAgent(object):
             action_selected = np.random.randint(0, len(max_action))
             return int(max_action[action_selected])
 
-    def save_neighbour(self, inds):
+    def save_neighbour(self, inds,dists):
         save_path = os.path.join(self.debug_dir, "./neighbour/{}".format(self.steps))
         if not os.path.exists(save_path):
             os.makedirs(save_path)
 
-        for ind in inds:
+        for i,neighbour in enumerate(zip(inds,dists)):
+            ind,dist = neighbour
             assert 0 <= ind < self.cur_capacity
-            cv2.imwrite(os.path.join(save_path, "{}.png".format(ind)), self.replay_buffer[ind].transpose(1, 0, 2))
+            cv2.imwrite(os.path.join(save_path, "{}_{}.png".format(i,dist)), self.replay_buffer[ind].transpose(1, 0, 2))
 
     def empty_buffer(self):
         self.cur_capacity = 0

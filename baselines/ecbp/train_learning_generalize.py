@@ -33,7 +33,7 @@ if __name__ == '__main__':
     train_env = create_env(args)
     vars(args).update({'number': 2})
     # vars(args).update({'env_name': "large_2"})
-    vars(args).update({'env_name': "fourrooms_noise"})
+    vars(args).update({'env_name': "fourroomscoin_noise"})
     vars(args).update({'noise_size': 10000})
 
     test_env = create_env(args)
@@ -41,7 +41,9 @@ if __name__ == '__main__':
     subdir = (datetime.datetime.now()).strftime("%m-%d-%Y-%H:%M:%S") + "_" + args.comment
     tfdir = os.path.join(args.base_log_dir, args.log_dir, subdir)
     agentdir = os.path.join(args.base_log_dir, args.agent_dir, subdir)
+
     tf_writer = tf.summary.FileWriter(tfdir, tf.get_default_graph())
+    print("tflogs ", tfdir, tf_writer)
     make_logger("ecbp", os.path.join(args.base_log_dir, args.log_dir, subdir, "logger.log"))
     make_logger("ec", os.path.join(args.base_log_dir, args.log_dir, subdir, "ec_logger.log"))
     # os.path.join(args.base_log_dir, args.log_dir, subdir, "logger.log")
@@ -75,7 +77,7 @@ if __name__ == '__main__':
     # agent = ec_agent
     # ps_agent = ECDebugAgent(rp_model if args.rp else contrastive_model,
     # ps_agent = PSMPLearnTargetAgent(
-        # representation_model_mlp if args.vector_input else unit_representation_model_cnn,
+    # representation_model_mlp if args.vector_input else unit_representation_model_cnn,
     ps_agent = MERAttentionAgent(
         # ps_agent = ECLearningAgent(
         representation_model_mlp if args.vector_input else representation_with_mask_model_cnn,
@@ -125,6 +127,9 @@ if __name__ == '__main__':
 
         def run(env, test=False):
             total_steps_required = args.num_steps if not test else args.test_num_steps
+            if total_steps_required <= 0:
+                agent.finish()
+                return
             if test:
                 agent.empty_buffer()
                 agent.trainable = False
